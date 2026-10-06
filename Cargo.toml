@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 image = "0.25.10"
+plotters = "0.3.7"
 rayon = "1.12.0"
