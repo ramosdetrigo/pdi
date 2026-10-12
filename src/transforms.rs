@@ -1,6 +1,6 @@
 use crate::pixel_array::PixelArray;
-use rayon::prelude::*;
 use plotters::prelude::*;
+use rayon::prelude::*;
 
 pub trait Transform {
     fn apply<OP>(&mut self, op: OP)
@@ -19,7 +19,7 @@ pub trait Transform {
 
     fn read(&self) -> String;
 
-    // TODO: linear por partes
+    fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]);
 
     // TODO: esteganografia
 
@@ -30,6 +30,7 @@ pub trait Transform {
     fn hist_eq(&mut self);
 
     // TODO: convolução genérica
+    fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>);
 }
 
 impl Transform for PixelArray {
@@ -100,6 +101,18 @@ impl Transform for PixelArray {
         String::from_utf8_lossy(&chars).into_owned()
     }
 
+    fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]) {
+        self.apply(|p| {
+            if *p < a[0] {
+                *p *= a[1] / a[0]
+            } else if *p < b[0] {
+                *p = *p * (b[1] - a[1] / b[0] - a[0]) + a[1]
+            } else {
+                *p = *p * (1.0 - b[1] / 1.0 - b[0]) + b[1]
+            }
+        });
+    }
+
     fn hist(&self) -> [usize; 256] {
         self.data()
             .par_iter()
@@ -108,12 +121,9 @@ impl Transform for PixelArray {
                 |mut hist, &p| {
                     hist[(p.clamp(0.0, 1.0) * 255.0) as usize] += 1;
                     hist
-                }
+                },
             )
-            .reduce(
-                || [0; 256],
-                |a, b| std::array::from_fn(|i| a[i] + b[i])
-            )
+            .reduce(|| [0; 256], |a, b| std::array::from_fn(|i| a[i] + b[i]))
     }
 
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -121,8 +131,7 @@ impl Transform for PixelArray {
 
         let max_count = data.iter().copied().max().unwrap_or(0);
 
-        let root = BitMapBackend::new("hist_plot.png", (640, 480))
-            .into_drawing_area();
+        let root = BitMapBackend::new("hist_plot.png", (640, 480)).into_drawing_area();
 
         root.fill(&WHITE)?;
 
@@ -131,10 +140,7 @@ impl Transform for PixelArray {
             .margin(10)
             .x_label_area_size(40)
             .y_label_area_size(50)
-            .build_cartesian_2d(
-                (0usize..data.len()).into_segmented(),
-                0usize..max_count + 1,
-            )?;
+            .build_cartesian_2d((0usize..data.len()).into_segmented(), 0usize..max_count + 1)?;
 
         chart
             .configure_mesh()
@@ -146,10 +152,12 @@ impl Transform for PixelArray {
 
         chart.draw_series(
             Histogram::vertical(&chart)
-            .style(RED.mix(0.5).filled())
-            .data(data.iter().enumerate().map(|(bucket, count)| {
-                (bucket, *count)
-            })),
+                .style(RED.mix(0.5).filled())
+                .data(
+                    data.iter()
+                        .enumerate()
+                        .map(|(bucket, count)| (bucket, *count)),
+                ),
         )?;
 
         root.present()?;
@@ -165,5 +173,39 @@ impl Transform for PixelArray {
         let prob: [f64; 256] = std::array::from_fn(|i| hist[i] as f64 / size);
         let prob_acc: [f64; 256] = std::array::from_fn(|i| prob[0..=i].par_iter().sum());
         self.apply(|p| *p *= prob_acc[(*p * 255.0) as usize]);
+    }
+
+    fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>) {
+        assert_eq!(filter.len() as isize, size_filter * size_filter);
+        let mut output = vec![0.0; self.data().len()];
+        let dimensions = self.dimensions();
+        let size_filter_half = size_filter / 2;
+        output
+            .par_chunks_mut(dimensions.0 as usize)
+            .enumerate()
+            .for_each(|(y, output_col)| {
+                output_col
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(x, output_pix)| {
+                        let mut sum = 0.0;
+                        for filter_y in 0..size_filter {
+                            for filter_x in 0..size_filter {
+                                let pos_x = x as isize + filter_x - size_filter_half;
+                                let pos_y = y as isize + filter_y - size_filter_half;
+                                if pos_x >= 0
+                                    && pos_x < dimensions.0 as isize
+                                    && pos_y >= 0
+                                    && pos_y < dimensions.1 as isize
+                                {
+                                    sum += self.get(pos_y as usize, pos_x as usize)
+                                        * filter[(filter_y * size_filter_half + filter_x) as usize];
+                                }
+                            }
+                        }
+                        *output_pix = sum;
+                    });
+            });
+        self.data_mut().copy_from_slice(&output);
     }
 }
