@@ -85,6 +85,7 @@ impl Transform for PixelArray {
     fn read(&self) -> String {
         let mut chars: Vec<u8> = Vec::new();
 
+        #[allow(clippy::chunks_exact_to_as_chunks)]
         for pixels in self.data().chunks_exact(8) {
             let mut byte = 0u8;
             for i in 0..8 {
