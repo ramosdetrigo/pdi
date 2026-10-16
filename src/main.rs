@@ -1,8 +1,6 @@
-use iced::widget::{Space, button, column, container, image as iced_img, row, scrollable, text};
+use iced::widget::{button, column, container, image as iced_img, row, scrollable, text};
 use iced::{Element, Length};
 use image::RgbaImage;
-
-use crate::Message::*;
 
 fn main() {
     let _ = iced::application(CasKod::new, CasKod::update, CasKod::view)
@@ -22,9 +20,7 @@ struct CasKod {
 
 impl CasKod {
     fn new() -> Self {
-        Self {
-            image_handle: Some(iced_img::Handle::from_path("mia.jpeg")),
-        }
+        Self { image_handle: None }
     }
 
     fn title(&self) -> String {
@@ -34,8 +30,8 @@ impl CasKod {
     fn update(&mut self, message: Message) {
         #[allow(clippy::single_match)]
         match message {
-            EraseImage => self.image_handle = None,
-            UpdateImage(buffer) => {
+            Message::EraseImage => self.image_handle = None,
+            Message::UpdateImage(buffer) => {
                 self.image_handle = Some(iced_img::Handle::from_rgba(
                     buffer.width(),
                     buffer.height(),
@@ -48,24 +44,21 @@ impl CasKod {
     fn view(&self) -> Element<'_, Message> {
         let left: Element<'_, Message> = match &self.image_handle {
             Some(handle) => iced_img(handle).into(),
-            None => Space::new().into(),
-        };
-
-        let mut right = column![
-            button("LIMPAR")
-                .on_press(Message::EraseImage)
-                .width(Length::Fill),
-            button("MIA1")
+            None => button("Carregar imagem")
                 .on_press(Message::UpdateImage(
                     image::open("mia.jpeg").unwrap().into_rgba8(),
                 ))
-                .width(Length::Fill),
-            button("MIA2")
-                .on_press(Message::UpdateImage(
-                    image::open("hidden.png").unwrap().into_rgba8(),
-                ))
-                .width(Length::Fill),
-        ];
+                .into(),
+        };
+
+        let mut right = column![];
+        if self.image_handle.is_some() {
+            right = right.push(
+                button("Limpar imagem")
+                    .on_press(Message::EraseImage)
+                    .width(Length::Fill),
+            )
+        }
 
         for i in 0..100 {
             right = right.push(button(text(format!("Filtro {i}"))).width(Length::Fill));
