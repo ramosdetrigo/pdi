@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use image::{DynamicImage, GrayImage, ImageReader};
+use image::{DynamicImage, GrayImage, ImageReader, RgbaImage};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 #[derive(Clone, Debug, PartialEq)]
