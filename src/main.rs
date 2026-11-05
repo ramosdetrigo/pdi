@@ -1,6 +1,6 @@
 use iced::widget::{button, column, container, image as iced_img, row, scrollable, text};
 use iced::{Element, Length, Task};
-use image::RgbaImage;
+use image::{ColorType, DynamicImage};
 use pdi::pixel_array::{self, PixelArray};
 use pdi::transforms::Transform;
 use std::path::Path;
@@ -30,7 +30,7 @@ enum Filters {
 #[allow(clippy::enum_variant_names)]
 enum Message {
     ClearImage,
-    UpdateImage(RgbaImage),
+    UpdateImage(DynamicImage),
     PickImage,
     ExecuteFunction(Filters),
 }
@@ -38,6 +38,7 @@ enum Message {
 struct CasKod {
     image_handle: Option<iced_img::Handle>,
     transformer: Option<pixel_array::PixelArray>,
+    image_was_grayscale: bool,
 }
 
 impl CasKod {
@@ -45,6 +46,7 @@ impl CasKod {
         Self {
             image_handle: None,
             transformer: None,
+            image_was_grayscale: false,
         }
     }
 
@@ -60,13 +62,27 @@ impl CasKod {
                 self.transformer = None;
             }
 
-            Message::UpdateImage(buffer) => {
+            Message::UpdateImage(image) => {
+                self.image_was_grayscale = matches!(
+                    image.color(),
+                    ColorType::L8 | ColorType::L16 | ColorType::La8 | ColorType::La16
+                );
+
+                if self.image_was_grayscale {
+                    self.transformer = Some(PixelArray::from(image.clone()));
+                } else {
+                    todo!() // RGBA
+                }
+
+                let rgba = image.into_rgba8();
+
                 self.image_handle = Some(iced_img::Handle::from_rgba(
-                    buffer.width(),
-                    buffer.height(),
-                    buffer.into_raw(),
-                ))
+                    rgba.width(),
+                    rgba.height(),
+                    rgba.into_raw(),
+                ));
             }
+
             Message::PickImage => {
                 // Não usar async pra impedir inputs no programa enquanto o arquivo não foi selecionado
                 if let Some(file_path) = rfd::FileDialog::new()
@@ -76,30 +92,14 @@ impl CasKod {
                     return Task::done(Message::UpdateImage(load_image(file_path)));
                 }
             }
-            Message::ExecuteFunction(filter) => match filter {
-                Filters::Threshold => self.transformer.as_mut().unwrap().threshold(0.5),
-                Filters::Negative => self.transformer.as_mut().unwrap().neg(),
-                Filters::Brightness => self.transformer.as_mut().unwrap().brightness(0.5),
-                Filters::Gamma => self.transformer.as_mut().unwrap().gamma(0.5, 0.5),
-                Filters::Hide => self.transformer.as_mut().unwrap().hide("LULA 13"),
-                Filters::ContrastStretching => self
-                    .transformer
-                    .as_mut()
-                    .unwrap()
-                    .contrast_stretching([0.4, 0.2], [0.6, 0.8]),
-                Filters::HistogramPlot => self
-                    .transformer
-                    .as_mut()
-                    .unwrap()
-                    .hist_plot()
-                    .expect("REASON"),
-                Filters::HistogramEqualizer => self.transformer.as_mut().unwrap().hist_eq(),
-                Filters::GenericConvolution => self
-                    .transformer
-                    .as_mut()
-                    .unwrap()
-                    .gen_convolution(3, vec![-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]),
-            },
+            Message::ExecuteFunction(filter) => {
+                if self.image_was_grayscale {
+                    self.apply_gray_filter(filter);
+                    let gray = self.transformer.as_ref().unwrap().clone().into_luma8();
+                    return Task::done(Message::UpdateImage(image::DynamicImage::ImageLuma8(gray)));
+                }
+                todo!() // RGBA
+            }
         }
         Task::none()
     }
@@ -145,11 +145,32 @@ impl CasKod {
         .height(Length::Fill)
         .into()
     }
+    fn apply_gray_filter(&mut self, filter: Filters) {
+        let Some(transformer) = self.transformer.as_mut() else {
+            return;
+        };
+
+        match filter {
+            Filters::Threshold => transformer.threshold(0.5),
+            Filters::Negative => transformer.neg(),
+            Filters::Brightness => transformer.brightness(0.5),
+            Filters::Gamma => transformer.gamma(0.5, 0.5),
+            Filters::Hide => transformer.hide("LULA 13"),
+            Filters::ContrastStretching => transformer.contrast_stretching([0.4, 0.2], [0.6, 0.8]),
+            Filters::HistogramPlot => {
+                transformer.hist_plot().expect("REASON");
+            }
+            Filters::HistogramEqualizer => transformer.hist_eq(),
+            Filters::GenericConvolution => {
+                transformer.gen_convolution(3, vec![-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+            }
+        }
+    }
 }
 
-fn load_image<S>(path: S) -> RgbaImage
+fn load_image<S>(path: S) -> image::DynamicImage
 where
     S: AsRef<Path>,
 {
-    image::open(path).unwrap().into_rgba8()
+    image::open(path).unwrap()
 }
