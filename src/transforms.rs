@@ -44,6 +44,10 @@ pub trait Transform {
 
     fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation);
 
+    fn derivative_x(&self, x: u32, y: u32) -> f64;
+
+    fn derivative_y(&self, x: u32, y: u32) -> f64;
+
     fn gradient_edge(&mut self);
 
     fn sobel(&mut self);
@@ -327,8 +331,49 @@ impl Transform for PixelArray {
         todo!()
     }
 
+    fn derivative_x(&self, x: u32, y: u32) -> f64 {
+        let (x, y) = (x as usize, y as usize);
+        let width = self.width() as usize;
+
+        if width <= 1 {
+            0.0
+        } else if x == 0 {
+            self.get(y, 1) - self.get(y, 0)
+        } else if x == width - 1 {
+            self.get(y, x) - self.get(y, x - 1)
+        } else {
+            (self.get(y, x + 1) - self.get(y, x - 1)) * 0.5
+        }
+    }
+
+    fn derivative_y(&self, x: u32, y: u32) -> f64 {
+        let (x, y) = (x as usize, y as usize);
+        let height = self.height() as usize;
+
+        if height <= 1 {
+            0.0
+        } else if y == 0 {
+            self.get(1, x) - self.get(0, x)
+        } else if y == height - 1 {
+            self.get(y, x) - self.get(y - 1, x)
+        } else {
+            (self.get(y + 1, x) - self.get(y - 1, x)) * 0.5
+        }
+    }
+
     fn gradient_edge(&mut self) {
-        todo!()
+        let mut copy = self.clone();
+
+        copy.par_iter_mut().enumerate().for_each(|(i, p)| {
+            let width = self.get_dimensions().0;
+            let x = i as u32 % width;
+            let y = i as u32 / width;
+            let dx = self.derivative_x(x, y);
+            let dy = self.derivative_y(x, y);
+            *p = dx.hypot(dy).clamp(0.0, 1.0);
+        });
+
+        *self = copy;
     }
 
     fn sobel(&mut self) {
@@ -337,7 +382,7 @@ impl Transform for PixelArray {
         self.gen_convolution(3, vec![-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]);
 
         self.par_iter_mut().enumerate().for_each(|(i, px)| {
-            let dot = (*px * *px + s2[i] * s2[i]).sqrt(); // direction -- sqrt
+            let dot = px.hypot(s2[i]);
             *px = dot.clamp(0.0, 1.0)
         });
     }

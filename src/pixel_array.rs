@@ -50,10 +50,22 @@ impl PixelArray {
         &mut self.buffer
     }
 
+    #[inline]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    #[inline]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    #[inline]
     pub fn get_dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
+    #[inline]
     pub fn set_dimensions(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
