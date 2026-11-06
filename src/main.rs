@@ -24,6 +24,9 @@ enum Filters {
     HistogramPlot,
     HistogramEqualizer,
     GenericConvolution,
+    MedianFilter,
+    MeanFilter,
+    PonderatedMeanFilter,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +167,9 @@ impl CasKod {
             Filters::GenericConvolution => {
                 transformer.gen_convolution(3, vec![-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
             }
+            Filters::MedianFilter => transformer.median_filter(3),
+            Filters::MeanFilter => transformer.mean_filter(3),
+            Filters::PonderatedMeanFilter => transformer.ponderated_mean_filter(),
         }
     }
 }
