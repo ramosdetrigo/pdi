@@ -4,14 +4,14 @@ use std::{
     path::Path,
 };
 
-use image::{DynamicImage, GrayImage, ImageReader, RgbaImage};
+use image::{DynamicImage, GrayImage, ImageReader};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PixelArray {
-    width: u32,
-    height: u32,
-    buffer: Vec<f64>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) buffer: Vec<f64>,
 }
 
 impl PixelArray {
@@ -34,18 +34,22 @@ impl PixelArray {
         .unwrap()
     }
 
+    #[inline]
     pub fn get(&self, row: usize, col: usize) -> f64 {
         self.buffer[row * self.width as usize + col]
     }
 
+    #[inline]
     pub fn data(&self) -> &[f64] {
         &self.buffer
     }
 
+    #[inline]
     pub fn data_mut(&mut self) -> &mut [f64] {
         &mut self.buffer
     }
 
+    #[inline]
     pub fn data_mut_vec(&mut self) -> &mut Vec<f64> {
         &mut self.buffer
     }
