@@ -9,7 +9,7 @@ fn main() {
     // let filter2 = vec![
     //     0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111,
     // ];
-    img.gen_convolution(3, filter1);
+    img.convolve(3, filter1);
     let og = img.into_luma8();
     og.save("og.png").unwrap();
 }

@@ -32,7 +32,7 @@ pub trait Transform {
 
     fn hist_eq(&mut self);
 
-    fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>);
+    fn convolve(&mut self, size_filter: isize, filter: Vec<f64>);
 
     fn median_filter(&mut self, size_filter: isize);
 
@@ -51,6 +51,10 @@ pub trait Transform {
     fn gradient_edge(&mut self);
 
     fn sobel(&mut self);
+
+    fn laplacian(&mut self, amount: f64);
+
+    fn high_boost(&mut self, amount: f64);
 }
 
 impl Transform for PixelArray {
@@ -196,7 +200,7 @@ impl Transform for PixelArray {
         self.apply(|p| *p *= prob_acc[(*p * 255.0) as usize]);
     }
 
-    fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>) {
+    fn convolve(&mut self, size_filter: isize, filter: Vec<f64>) {
         assert_eq!(filter.len() as isize, size_filter * size_filter);
         let mut output = vec![0.0; self.data().len()];
         let dimensions = self.get_dimensions();
@@ -274,7 +278,7 @@ impl Transform for PixelArray {
 
     fn mean_filter(&mut self, size_filter: isize) {
         let filter = vec![1.0 / 9.0; 9];
-        self.gen_convolution(size_filter, filter);
+        self.convolve(size_filter, filter);
     }
 
     fn ponderated_mean_filter(&mut self) {
@@ -282,7 +286,7 @@ impl Transform for PixelArray {
         let two = 2.0 / 16.0;
         let four = 4.0 / 16.0;
         let filter = vec![one, two, one, two, four, two, one, two, one];
-        self.gen_convolution(3, filter);
+        self.convolve(3, filter);
     }
 
     fn scale(&mut self, sx: f64, sy: f64, interpolation: Interpolation) {
@@ -432,12 +436,40 @@ impl Transform for PixelArray {
 
     fn sobel(&mut self) {
         let mut s2 = self.clone();
-        s2.gen_convolution(3, vec![-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]);
-        self.gen_convolution(3, vec![-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]);
+        s2.convolve(3, vec![-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]);
+        self.convolve(3, vec![-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]);
 
         self.par_iter_mut().enumerate().for_each(|(i, px)| {
             let dot = px.hypot(s2[i]);
             *px = dot.clamp(0.0, 1.0)
         });
+    }
+
+    fn laplacian(&mut self, amount: f64) {
+        assert!(amount.is_finite() && amount >= 0.0);
+
+        let mut laplacian = self.clone();
+        laplacian.convolve(3, vec![0.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 0.0]);
+
+        self.data_mut()
+            .par_iter_mut()
+            .zip(laplacian.data().par_iter())
+            .for_each(|(pixel, &lap)| {
+                *pixel = (*pixel + amount * lap).clamp(0.0, 1.0);
+            });
+    }
+
+    fn high_boost(&mut self, amount: f64) {
+        assert!(amount.is_finite() && amount >= 0.0);
+
+        let mut blurred = self.clone();
+        blurred.ponderated_mean_filter();
+
+        self.data_mut()
+            .par_iter_mut()
+            .zip(blurred.data().par_iter())
+            .for_each(|(pixel, &blur)| {
+                *pixel = (*pixel + amount * (*pixel - blur)).clamp(0.0, 1.0);
+            });
     }
 }

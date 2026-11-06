@@ -186,7 +186,7 @@ impl CasKod {
             }
             Filters::HistogramEqualizer => transformer.hist_eq(),
             Filters::GenericConvolution => {
-                transformer.gen_convolution(3, vec![-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+                transformer.convolve(3, vec![-1.0, -1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
             }
             Filters::MedianFilter => transformer.median_filter(3),
             Filters::MeanFilter => transformer.mean_filter(3),
