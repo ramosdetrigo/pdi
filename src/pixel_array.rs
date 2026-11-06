@@ -34,8 +34,8 @@ impl PixelArray {
         .unwrap()
     }
 
-    pub fn get(&self, col: usize, lin: usize) -> f64 {
-        self.buffer[col * self.width as usize + lin]
+    pub fn get(&self, row: usize, col: usize) -> f64 {
+        self.buffer[row * self.width as usize + col]
     }
 
     pub fn data(&self) -> &[f64] {
@@ -46,8 +46,17 @@ impl PixelArray {
         &mut self.buffer
     }
 
-    pub fn dimensions(&self) -> (u32, u32) {
+    pub fn data_mut_vec(&mut self) -> &mut Vec<f64> {
+        &mut self.buffer
+    }
+
+    pub fn get_dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    pub fn set_dimensions(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
     }
 }
 

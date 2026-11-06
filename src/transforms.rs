@@ -2,6 +2,11 @@ use crate::pixel_array::PixelArray;
 use plotters::prelude::*;
 use rayon::prelude::*;
 
+pub enum Interpolation {
+    Nearest,
+    Bilinear,
+}
+
 pub trait Transform {
     fn apply<OP>(&mut self, op: OP)
     where
@@ -37,6 +42,8 @@ pub trait Transform {
     fn mean_filter(&mut self, size_filter: isize);
 
     fn ponderated_mean_filter(&mut self);
+
+    fn scale(&mut self, sx: f64, sy: f64, interpolation: Interpolation);
 }
 
 impl Transform for PixelArray {
@@ -185,7 +192,7 @@ impl Transform for PixelArray {
     fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>) {
         assert_eq!(filter.len() as isize, size_filter * size_filter);
         let mut output = vec![0.0; self.data().len()];
-        let dimensions = self.dimensions();
+        let dimensions = self.get_dimensions();
         let size_filter_half = size_filter / 2;
         output
             .par_chunks_mut(dimensions.0 as usize)
@@ -220,7 +227,7 @@ impl Transform for PixelArray {
         assert!(size_filter > 0 && size_filter % 2 == 1);
 
         let mut output = vec![0.0; self.data().len()];
-        let dimensions = self.dimensions();
+        let dimensions = self.get_dimensions();
         let half = size_filter / 2;
 
         output
@@ -268,5 +275,47 @@ impl Transform for PixelArray {
         let four = 4.0 / 16.0;
         let filter = vec![one, two, one, two, four, two, one, two, one];
         self.gen_convolution(3, filter);
+    }
+
+    fn scale(&mut self, sx: f64, sy: f64, interpolation: Interpolation) {
+        assert!(sx > 0.0 && sy > 0.0, "scale factors must be positive");
+
+        let (old_width, old_height) = self.get_dimensions();
+        let old_width = old_width as usize;
+        let old_height = old_height as usize;
+        assert!(old_width > 0 && old_height > 0, "image must not be empty");
+
+        let new_width = ((old_width as f64 * sx).round() as usize).max(1);
+        let new_height = ((old_height as f64 * sy).round() as usize).max(1);
+        let mut output = vec![0.0; new_width * new_height];
+
+        output.par_iter_mut().enumerate().for_each(|(pos, pixel)| {
+            let row = pos / new_width;
+            let col = pos % new_width;
+
+            let x = ((col as f64 + 0.5) / sx - 0.5).clamp(0.0, (old_width - 1) as f64);
+            let y = ((row as f64 + 0.5) / sy - 0.5).clamp(0.0, (old_height - 1) as f64);
+
+            *pixel = match interpolation {
+                Interpolation::Nearest => self.get(y.round() as usize, x.round() as usize),
+                Interpolation::Bilinear => {
+                    let x0 = x.floor() as usize;
+                    let y0 = y.floor() as usize;
+                    let x1 = (x0 + 1).min(old_width - 1);
+                    let y1 = (y0 + 1).min(old_height - 1);
+
+                    let wx = x - x0 as f64;
+                    let wy = y - y0 as f64;
+
+                    let top = (1.0 - wx) * self.get(y0, x0) + wx * self.get(y0, x1);
+                    let bottom = (1.0 - wx) * self.get(y1, x0) + wx * self.get(y1, x1);
+
+                    (1.0 - wy) * top + wy * bottom
+                }
+            };
+        });
+
+        self.set_dimensions(new_width as u32, new_height as u32);
+        *self.data_mut_vec() = output;
     }
 }

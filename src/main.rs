@@ -27,12 +27,14 @@ enum Filters {
     MedianFilter,
     MeanFilter,
     PonderatedMeanFilter,
+    Scale,
 }
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
 enum Message {
     ClearImage,
+    SaveImage,
     UpdateImage(DynamicImage),
     PickImage,
     ExecuteFunction(Filters),
@@ -63,6 +65,19 @@ impl CasKod {
             Message::ClearImage => {
                 self.image_handle = None;
                 self.transformer = None;
+            }
+
+            Message::SaveImage => {
+                if let (Some(path), Some(transformer)) = (
+                    rfd::FileDialog::new()
+                        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp"])
+                        .save_file(),
+                    self.transformer.as_ref(),
+                ) {
+                    // TODO: salvar imagem rgba
+                    let gray = transformer.clone().into_luma8();
+                    let _ = gray.save(path);
+                }
             }
 
             Message::UpdateImage(image) => {
@@ -119,11 +134,17 @@ impl CasKod {
         // Direita: Filtros + botão de limpar imagem
         let mut right = column![];
         if self.image_handle.is_some() {
-            right = right.push(
-                button("Limpar imagem")
-                    .on_press(Message::ClearImage)
-                    .width(Length::Fill),
-            )
+            right = right
+                .push(
+                    button("Limpar imagem")
+                        .on_press(Message::ClearImage)
+                        .width(Length::Fill),
+                )
+                .push(
+                    button("Salvar imagem")
+                        .on_press(Message::SaveImage)
+                        .width(Length::Fill),
+                )
         }
 
         for filter in Filters::iter() {
@@ -170,6 +191,7 @@ impl CasKod {
             Filters::MedianFilter => transformer.median_filter(3),
             Filters::MeanFilter => transformer.mean_filter(3),
             Filters::PonderatedMeanFilter => transformer.ponderated_mean_filter(),
+            Filters::Scale => transformer.scale(2.0, 2.0, pdi::transforms::Interpolation::Bilinear),
         }
     }
 }
