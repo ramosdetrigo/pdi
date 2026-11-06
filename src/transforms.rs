@@ -31,6 +31,12 @@ pub trait Transform {
 
     // TODO: convolução genérica
     fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>);
+
+    fn median_filter(&mut self, size_filter: isize);
+
+    fn mean_filter(&mut self, size_filter: isize);
+
+    fn ponderated_mean_filter(&mut self);
 }
 
 impl Transform for PixelArray {
@@ -208,5 +214,59 @@ impl Transform for PixelArray {
                     });
             });
         self.data_mut().copy_from_slice(&output);
+    }
+
+    fn median_filter(&mut self, size_filter: isize) {
+        assert!(size_filter > 0 && size_filter % 2 == 1);
+
+        let mut output = vec![0.0; self.data().len()];
+        let dimensions = self.dimensions();
+        let half = size_filter / 2;
+
+        output
+            .par_chunks_mut(dimensions.0 as usize)
+            .enumerate()
+            .for_each(|(y, output_row)| {
+                output_row
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(x, output_pixel)| {
+                        let mut values = Vec::with_capacity((size_filter * size_filter) as usize);
+
+                        for filter_y in 0..size_filter {
+                            for filter_x in 0..size_filter {
+                                let pos_x = x as isize + filter_x - half;
+                                let pos_y = y as isize + filter_y - half;
+
+                                if pos_x >= 0
+                                    && pos_x < dimensions.0 as isize
+                                    && pos_y >= 0
+                                    && pos_y < dimensions.1 as isize
+                                {
+                                    values.push(self.get(pos_y as usize, pos_x as usize));
+                                }
+                            }
+                        }
+
+                        let median_index = values.len() / 2;
+                        values.select_nth_unstable_by(median_index, f64::total_cmp);
+                        *output_pixel = values[median_index];
+                    });
+            });
+
+        self.data_mut().copy_from_slice(&output);
+    }
+
+    fn mean_filter(&mut self, size_filter: isize) {
+        let filter = vec![1.0 / 9.0; 9];
+        self.gen_convolution(size_filter, filter);
+    }
+
+    fn ponderated_mean_filter(&mut self) {
+        let one = 1.0 / 16.0;
+        let two = 2.0 / 16.0;
+        let four = 4.0 / 16.0;
+        let filter = vec![one, two, one, two, four, two, one, two, one];
+        self.gen_convolution(3, filter);
     }
 }
