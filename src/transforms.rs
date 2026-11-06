@@ -328,7 +328,61 @@ impl Transform for PixelArray {
     }
 
     fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation) {
-        todo!()
+        assert!(theta.is_finite(), "angle must be finite");
+
+        let (width, height) = self.get_dimensions();
+        let (width, height) = (width as usize, height as usize);
+
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        let mut output = vec![0.0; self.data().len()];
+        let (cos_theta, sin_theta) = (theta.cos(), theta.sin());
+        let (pivot_x, pivot_y) = (px as f64, py as f64);
+
+        // mapeia o pixel de saída à uma posição na imagem original
+        output.par_iter_mut().enumerate().for_each(|(i, pixel)| {
+            let x = (i % width) as f64;
+            let y = (i / width) as f64;
+
+            let dx = x - pivot_x;
+            let dy = y - pivot_y;
+
+            let source_x = pivot_x + cos_theta * dx + sin_theta * dy;
+            let source_y = pivot_y - sin_theta * dx + cos_theta * dy;
+
+            if source_x < 0.0
+                || source_y < 0.0
+                || source_x > (width - 1) as f64
+                || source_y > (height - 1) as f64
+            {
+                *pixel = 0.0;
+                return;
+            }
+
+            *pixel = match &interpolation {
+                Interpolation::Nearest => {
+                    self.get(source_y.round() as usize, source_x.round() as usize)
+                }
+                Interpolation::Bilinear => {
+                    let x0 = source_x.floor() as usize;
+                    let y0 = source_y.floor() as usize;
+                    let x1 = (x0 + 1).min(width - 1);
+                    let y1 = (y0 + 1).min(height - 1);
+
+                    let wx = source_x - x0 as f64;
+                    let wy = source_y - y0 as f64;
+
+                    let top = (1.0 - wx) * self.get(y0, x0) + wx * self.get(y0, x1);
+                    let bottom = (1.0 - wx) * self.get(y1, x0) + wx * self.get(y1, x1);
+
+                    (1.0 - wy) * top + wy * bottom
+                }
+            };
+        });
+
+        *self.data_mut_vec() = output;
     }
 
     fn derivative_x(&self, x: u32, y: u32) -> f64 {
