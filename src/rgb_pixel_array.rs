@@ -111,6 +111,7 @@ impl RGBPixelArray {
         }
     }
 
+    // TODO: move to trait
     pub fn negative(&mut self) {
         for p in self.data_mut() {
             p[0] = 1.0 - p[0];
