@@ -26,15 +26,12 @@ pub trait Transform {
 
     fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]);
 
-    // TODO: esteganografia
-
     fn hist(&self) -> [usize; 256];
 
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>>;
 
     fn hist_eq(&mut self);
 
-    // TODO: convolução genérica
     fn gen_convolution(&mut self, size_filter: isize, filter: Vec<f64>);
 
     fn median_filter(&mut self, size_filter: isize);
@@ -44,6 +41,12 @@ pub trait Transform {
     fn ponderated_mean_filter(&mut self);
 
     fn scale(&mut self, sx: f64, sy: f64, interpolation: Interpolation);
+
+    fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation);
+
+    fn gradient_edge(&mut self);
+
+    fn sobel(&mut self);
 }
 
 impl Transform for PixelArray {
@@ -212,8 +215,9 @@ impl Transform for PixelArray {
                                     && pos_y >= 0
                                     && pos_y < dimensions.1 as isize
                                 {
+                                    let filter_index = (filter_y * size_filter + filter_x) as usize;
                                     sum += self.get(pos_y as usize, pos_x as usize)
-                                        * filter[(filter_y * size_filter_half + filter_x) as usize];
+                                        * filter[filter_index];
                                 }
                             }
                         }
@@ -317,5 +321,24 @@ impl Transform for PixelArray {
 
         self.set_dimensions(new_width as u32, new_height as u32);
         *self.data_mut_vec() = output;
+    }
+
+    fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation) {
+        todo!()
+    }
+
+    fn gradient_edge(&mut self) {
+        todo!()
+    }
+
+    fn sobel(&mut self) {
+        let mut s2 = self.clone();
+        s2.gen_convolution(3, vec![-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]);
+        self.gen_convolution(3, vec![-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]);
+
+        self.par_iter_mut().enumerate().for_each(|(i, px)| {
+            let dot = (*px * *px + s2[i] * s2[i]).sqrt(); // direction -- sqrt
+            *px = dot.clamp(0.0, 1.0)
+        });
     }
 }
