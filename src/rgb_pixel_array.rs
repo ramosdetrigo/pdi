@@ -110,6 +110,14 @@ impl RGBPixelArray {
             p[2] = 0.272 * r + 0.534 * g + 0.131 * b;
         }
     }
+
+    pub fn negative(&mut self) {
+        for p in self.data_mut() {
+            p[0] = 1.0 - p[0];
+            p[1] = 1.0 - p[1];
+            p[2] = 1.0 - p[2];
+        }
+    }
 }
 
 impl From<DynamicImage> for RGBPixelArray {

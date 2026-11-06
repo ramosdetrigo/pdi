@@ -8,6 +8,6 @@ fn main() {
     let mut args: Vec<String> = env::args().collect();
     let mut img = RGBPixelArray::from_path(args.pop().unwrap()).unwrap();
 
-    img.sepia();
+    img.negative();
     img.into_rgb().save("transformed.png").unwrap();
 }
