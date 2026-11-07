@@ -5,7 +5,10 @@ use std::{
 };
 
 use image::{DynamicImage, GrayImage, ImageReader};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::{
+    iter::{IntoParallelRefIterator, ParallelIterator},
+    prelude::*,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PixelArray {
@@ -32,6 +35,14 @@ impl PixelArray {
                 .collect(),
         )
         .unwrap()
+    }
+
+    #[inline]
+    pub fn apply<OP>(&mut self, op: OP)
+    where
+        OP: Fn(&mut f64) + Sync + Send,
+    {
+        self.data_mut().par_iter_mut().for_each(op);
     }
 
     #[inline]

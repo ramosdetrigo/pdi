@@ -5,7 +5,10 @@ use std::{
     slice::{ChunksExact, ChunksExactMut},
 };
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::{
+    iter::{IntoParallelRefIterator, ParallelIterator},
+    prelude::*,
+};
 
 use image::{DynamicImage, ImageReader, RgbImage};
 
@@ -39,21 +42,29 @@ impl RGBPixelArray {
     }
 
     #[inline]
+    pub fn apply<OP>(&mut self, op: OP)
+    where
+        OP: Fn(&mut [f64]) + Sync + Send,
+    {
+        self.data_mut().for_each(op);
+    }
+
+    #[inline]
     pub fn get(&self, row: usize, col: usize) -> [f64; 3] {
         let p = (row * self.width as usize + col) * 3;
         [self.buffer[p], self.buffer[p + 1], self.buffer[p + 2]]
     }
 
     #[inline]
-    pub fn data<'a>(&'a self) -> ChunksExact<'a, f64> {
+    pub fn data<'a>(&'a self) -> rayon::slice::ChunksExact<'a, f64> {
         #[allow(clippy::chunks_exact_to_as_chunks)]
-        self.buffer.chunks_exact(3)
+        self.buffer.par_chunks_exact(3)
     }
 
     #[inline]
-    pub fn data_mut<'a>(&'a mut self) -> ChunksExactMut<'a, f64> {
+    pub fn data_mut<'a>(&'a mut self) -> rayon::slice::ChunksExactMut<'a, f64> {
         #[allow(clippy::chunks_exact_to_as_chunks)]
-        self.buffer.chunks_exact_mut(3)
+        self.buffer.par_chunks_exact_mut(3)
     }
 
     #[inline]
@@ -83,41 +94,45 @@ impl RGBPixelArray {
     }
 
     pub fn grayscale_simple(&self) -> PixelArray {
+        let buffer = self
+            .data()
+            .flat_map_iter(|p| {
+                let gray = (p[0] + p[1] + p[2]) / 3.0;
+                std::iter::repeat(gray).take(3)
+            })
+            .collect();
+
         PixelArray {
             width: self.width,
             height: self.height,
-            buffer: Vec::from_iter(self.data().map(|p| (p[0] + p[1] + p[2]) / 3.0)),
+            buffer,
         }
     }
 
     pub fn grayscale_weighted(&self) -> PixelArray {
+        let buffer = self
+            .data()
+            .flat_map_iter(|p| {
+                let gray = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+                std::iter::repeat(gray).take(3)
+            })
+            .collect();
+
         PixelArray {
             width: self.width,
             height: self.height,
-            buffer: Vec::from_iter(
-                self.data()
-                    .map(|p| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]),
-            ),
+            buffer,
         }
     }
 
     pub fn sepia(&mut self) {
-        for p in self.data_mut() {
+        self.data_mut().for_each(|p| {
             let (r, g, b) = (p[0], p[1], p[2]);
 
             p[0] = 0.393 * r + 0.769 * g + 0.189 * b;
             p[1] = 0.349 * r + 0.686 * g + 0.168 * b;
             p[2] = 0.272 * r + 0.534 * g + 0.131 * b;
-        }
-    }
-
-    // TODO: move to trait
-    pub fn negative(&mut self) {
-        for p in self.data_mut() {
-            p[0] = 1.0 - p[0];
-            p[1] = 1.0 - p[1];
-            p[2] = 1.0 - p[2];
-        }
+        });
     }
 }
 

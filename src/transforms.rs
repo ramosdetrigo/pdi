@@ -1,4 +1,5 @@
 use crate::pixel_array::PixelArray;
+use crate::rgb_pixel_array::RGBPixelArray;
 use plotters::prelude::*;
 use rayon::prelude::*;
 
@@ -8,10 +9,6 @@ pub enum Interpolation {
 }
 
 pub trait Transform {
-    fn apply<OP>(&mut self, op: OP)
-    where
-        OP: Fn(&mut f64) + Sync + Send;
-
     fn threshold(&mut self, threshold: f64);
 
     fn neg(&mut self);
@@ -58,13 +55,6 @@ pub trait Transform {
 }
 
 impl Transform for PixelArray {
-    fn apply<OP>(&mut self, op: OP)
-    where
-        OP: Fn(&mut f64) + Sync + Send,
-    {
-        self.data_mut().par_iter_mut().for_each(op);
-    }
-
     fn brightness(&mut self, c: f64) {
         self.apply(|p| *p *= c);
     }
@@ -470,6 +460,553 @@ impl Transform for PixelArray {
             .zip(blurred.data().par_iter())
             .for_each(|(pixel, &blur)| {
                 *pixel = (*pixel + amount * (*pixel - blur)).clamp(0.0, 1.0);
+            });
+    }
+}
+
+impl Transform for RGBPixelArray {
+    fn brightness(&mut self, c: f64) {
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                *channel = (*channel * c).clamp(0.0, 1.0);
+            }
+        });
+    }
+
+    fn gamma(&mut self, c: f64, y: f64) {
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                *channel = (channel.powf(y) * c).clamp(0.0, 1.0);
+            }
+        });
+    }
+
+    fn neg(&mut self) {
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                *channel = 1.0 - *channel;
+            }
+        });
+    }
+
+    fn threshold(&mut self, threshold: f64) {
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                *channel = if *channel > threshold { 1.0 } else { 0.0 };
+            }
+        });
+    }
+
+    fn hide(&mut self, msg: &str) {
+        assert!(msg.is_ascii(), "Can only encode ASCII characters!");
+
+        let mut bytes = msg.as_bytes().to_vec();
+        bytes.push(0); // null terminator
+
+        let pixels: Vec<&mut [f64]> = self.data_mut().collect();
+        let samples = pixels.into_iter().flat_map(|pixel| pixel.iter_mut());
+
+        for (sample, bit) in samples.zip(
+            bytes
+                .into_iter()
+                .flat_map(|byte| (0..8).map(move |i| (byte >> i) & 1)),
+        ) {
+            let value = (sample.clamp(0.0, 1.0) * 255.0) as u8;
+            *sample = ((value & 0b1111_1110) | bit) as f64 / 255.0;
+        }
+    }
+
+    fn read(&self) -> String {
+        let samples: Vec<f64> = self
+            .data()
+            .flat_map_iter(|pixel| pixel.iter().copied())
+            .collect();
+
+        let mut chars = Vec::new();
+
+        for samples_for_byte in samples.chunks_exact(8) {
+            let mut byte = 0u8;
+
+            for (i, sample) in samples_for_byte.iter().enumerate() {
+                let bit = ((*sample).clamp(0.0, 1.0) * 255.0) as u8 & 1;
+                byte |= bit << i;
+            }
+
+            if byte == 0 {
+                break;
+            }
+
+            chars.push(byte);
+        }
+
+        String::from_utf8_lossy(&chars).into_owned()
+    }
+
+    fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]) {
+        assert!(a[0] < b[0], "Input breakpoints must be increasing");
+        assert!(
+            a[0] != 0.0 && b[0] != 1.0,
+            "Breakpoints cause division by zero"
+        );
+
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                *channel = if *channel < a[0] {
+                    *channel * (a[1] / a[0])
+                } else if *channel < b[0] {
+                    a[1] + (*channel - a[0]) * ((b[1] - a[1]) / (b[0] - a[0]))
+                } else {
+                    b[1] + (*channel - b[0]) * ((1.0 - b[1]) / (1.0 - b[0]))
+                };
+            }
+        });
+    }
+
+    fn hist(&self) -> [usize; 256] {
+        self.data()
+            .fold(
+                || [0usize; 256],
+                |mut hist, pixel| {
+                    for &channel in &pixel[..3] {
+                        let bucket = (channel.clamp(0.0, 1.0) * 255.0) as usize;
+                        hist[bucket] += 1;
+                    }
+                    hist
+                },
+            )
+            .reduce(
+                || [0usize; 256],
+                |a, b| std::array::from_fn(|i| a[i] + b[i]),
+            )
+    }
+
+    fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let data = self.hist();
+
+        let max_count = data.iter().copied().max().unwrap_or(0);
+
+        let root = BitMapBackend::new("hist_plot.png", (640, 480)).into_drawing_area();
+
+        root.fill(&WHITE)?;
+
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Histograma :)", ("sans-serif", 30).into_font())
+            .margin(10)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d((0usize..data.len()).into_segmented(), 0usize..max_count + 1)?;
+
+        chart
+            .configure_mesh()
+            .disable_x_mesh()
+            .y_desc("Count")
+            .x_desc("Bucket")
+            .axis_desc_style(("sans-serif", 15))
+            .draw()?;
+
+        chart.draw_series(
+            Histogram::vertical(&chart)
+                .style(RED.mix(0.5).filled())
+                .data(
+                    data.iter()
+                        .enumerate()
+                        .map(|(bucket, count)| (bucket, *count)),
+                ),
+        )?;
+
+        root.present()?;
+
+        println!("Result has been saved");
+
+        Ok(())
+    }
+
+    fn hist_eq(&mut self) {
+        let hist = self.hist();
+        let size: usize = hist.iter().sum();
+
+        if size == 0 {
+            return;
+        }
+
+        let cdf: [f64; 256] =
+            std::array::from_fn(|i| hist[..=i].iter().sum::<usize>() as f64 / size as f64);
+
+        self.apply(|p| {
+            for channel in &mut p[..3] {
+                let bucket = (channel.clamp(0.0, 1.0) * 255.0) as usize;
+                *channel = cdf[bucket];
+            }
+        });
+    }
+
+    fn convolve(&mut self, size_filter: isize, filter: Vec<f64>) {
+        assert!(size_filter > 0 && size_filter % 2 == 1);
+        assert_eq!(filter.len(), (size_filter * size_filter) as usize);
+
+        let (width, height) = self.get_dimensions();
+        let width = width as usize;
+        let height = height as usize;
+        let half = size_filter / 2;
+
+        // Snapshot RGB pixels before writing the output.
+        let source: Vec<[f64; 3]> = self
+            .data()
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+
+        let mut output = vec![[0.0; 3]; width * height];
+
+        output
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, output_row)| {
+                output_row
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(x, output_pixel)| {
+                        for filter_y in 0..size_filter {
+                            for filter_x in 0..size_filter {
+                                let pos_x = x as isize + filter_x - half;
+                                let pos_y = y as isize + filter_y - half;
+
+                                if pos_x >= 0
+                                    && pos_x < width as isize
+                                    && pos_y >= 0
+                                    && pos_y < height as isize
+                                {
+                                    let filter_index = (filter_y * size_filter + filter_x) as usize;
+                                    let source_index = pos_y as usize * width + pos_x as usize;
+                                    let weight = filter[filter_index];
+
+                                    for channel in 0..3 {
+                                        output_pixel[channel] +=
+                                            source[source_index][channel] * weight;
+                                    }
+                                }
+                            }
+                        }
+
+                        for channel in output_pixel {
+                            *channel = channel.clamp(0.0, 1.0);
+                        }
+                    });
+            });
+
+        self.data_mut()
+            .zip(output.into_par_iter())
+            .for_each(|(pixel, output_pixel)| {
+                pixel.copy_from_slice(&output_pixel);
+            });
+    }
+
+    fn median_filter(&mut self, size_filter: isize) {
+        assert!(size_filter > 0 && size_filter % 2 == 1);
+
+        let (width, height) = self.get_dimensions();
+        let width = width as usize;
+        let height = height as usize;
+        let half = size_filter / 2;
+
+        // Snapshot pixels so the parallel pass reads the original image.
+        let source: Vec<[f64; 3]> = self
+            .data()
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+
+        let mut output = vec![[0.0; 3]; width * height];
+
+        output
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, output_row)| {
+                output_row
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(x, output_pixel)| {
+                        let mut values: [Vec<f64>; 3] = std::array::from_fn(|_| {
+                            Vec::with_capacity((size_filter * size_filter) as usize)
+                        });
+
+                        for filter_y in 0..size_filter {
+                            for filter_x in 0..size_filter {
+                                let pos_x = x as isize + filter_x - half;
+                                let pos_y = y as isize + filter_y - half;
+
+                                if pos_x >= 0
+                                    && pos_x < width as isize
+                                    && pos_y >= 0
+                                    && pos_y < height as isize
+                                {
+                                    let source_index = pos_y as usize * width + pos_x as usize;
+
+                                    for channel in 0..3 {
+                                        values[channel].push(source[source_index][channel]);
+                                    }
+                                }
+                            }
+                        }
+
+                        for channel in 0..3 {
+                            let median_index = values[channel].len() / 2;
+                            values[channel].select_nth_unstable_by(median_index, f64::total_cmp);
+                            output_pixel[channel] = values[channel][median_index];
+                        }
+                    });
+            });
+
+        self.data_mut()
+            .zip(output.into_par_iter())
+            .for_each(|(pixel, output_pixel)| {
+                pixel.copy_from_slice(&output_pixel);
+            });
+    }
+
+    fn mean_filter(&mut self, size_filter: isize) {
+        assert!(size_filter > 0 && size_filter % 2 == 1);
+
+        let weight = 1.0 / (size_filter * size_filter) as f64;
+        let filter = vec![weight; (size_filter * size_filter) as usize];
+
+        self.convolve(size_filter, filter);
+    }
+
+    fn ponderated_mean_filter(&mut self) {
+        let one = 1.0 / 16.0;
+        let two = 2.0 / 16.0;
+        let four = 4.0 / 16.0;
+        let filter = vec![one, two, one, two, four, two, one, two, one];
+        self.convolve(3, filter);
+    }
+
+    fn scale(&mut self, sx: f64, sy: f64, interpolation: Interpolation) {
+        assert!(sx > 0.0 && sy > 0.0, "scale factors must be positive");
+
+        let (old_width, old_height) = self.get_dimensions();
+        let old_width = old_width as usize;
+        let old_height = old_height as usize;
+        assert!(old_width > 0 && old_height > 0, "image must not be empty");
+
+        let new_width = ((old_width as f64 * sx).round() as usize).max(1);
+        let new_height = ((old_height as f64 * sy).round() as usize).max(1);
+
+        // Snapshot the source RGB pixels before replacing the image.
+        let source: Vec<[f64; 3]> = self
+            .data()
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+
+        let mut output = vec![[0.0; 3]; new_width * new_height];
+
+        output.par_iter_mut().enumerate().for_each(|(pos, pixel)| {
+            let row = pos / new_width;
+            let col = pos % new_width;
+
+            let x = ((col as f64 + 0.5) / sx - 0.5).clamp(0.0, (old_width - 1) as f64);
+            let y = ((row as f64 + 0.5) / sy - 0.5).clamp(0.0, (old_height - 1) as f64);
+
+            match interpolation {
+                Interpolation::Nearest => {
+                    let source_x = x.round() as usize;
+                    let source_y = y.round() as usize;
+                    *pixel = source[source_y * old_width + source_x];
+                }
+                Interpolation::Bilinear => {
+                    let x0 = x.floor() as usize;
+                    let y0 = y.floor() as usize;
+                    let x1 = (x0 + 1).min(old_width - 1);
+                    let y1 = (y0 + 1).min(old_height - 1);
+
+                    let wx = x - x0 as f64;
+                    let wy = y - y0 as f64;
+
+                    let top_left = source[y0 * old_width + x0];
+                    let top_right = source[y0 * old_width + x1];
+                    let bottom_left = source[y1 * old_width + x0];
+                    let bottom_right = source[y1 * old_width + x1];
+
+                    for channel in 0..3 {
+                        let top = (1.0 - wx) * top_left[channel] + wx * top_right[channel];
+                        let bottom = (1.0 - wx) * bottom_left[channel] + wx * bottom_right[channel];
+
+                        pixel[channel] = (1.0 - wy) * top + wy * bottom;
+                    }
+                }
+            }
+        });
+
+        let output: Vec<f64> = output.into_iter().flat_map(|pixel| pixel).collect();
+
+        self.set_dimensions(new_width as u32, new_height as u32);
+        *self.data_mut_vec() = output;
+    }
+
+    fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation) {
+        assert!(theta.is_finite(), "angle must be finite");
+
+        let (width, height) = self.get_dimensions();
+        let (width, height) = (width as usize, height as usize);
+
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        let source: Vec<[f64; 3]> = self
+            .data()
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+
+        let mut output = vec![[0.0; 3]; width * height];
+        let (cos_theta, sin_theta) = (theta.cos(), theta.sin());
+        let (pivot_x, pivot_y) = (px as f64, py as f64);
+
+        output.par_iter_mut().enumerate().for_each(|(i, pixel)| {
+            let x = (i % width) as f64;
+            let y = (i / width) as f64;
+
+            let dx = x - pivot_x;
+            let dy = y - pivot_y;
+
+            let source_x = pivot_x + cos_theta * dx + sin_theta * dy;
+            let source_y = pivot_y - sin_theta * dx + cos_theta * dy;
+
+            if source_x < 0.0
+                || source_y < 0.0
+                || source_x > (width - 1) as f64
+                || source_y > (height - 1) as f64
+            {
+                return; // Output pixel is already black.
+            }
+
+            match interpolation {
+                Interpolation::Nearest => {
+                    let source_index =
+                        source_y.round() as usize * width + source_x.round() as usize;
+                    *pixel = source[source_index];
+                }
+                Interpolation::Bilinear => {
+                    let x0 = source_x.floor() as usize;
+                    let y0 = source_y.floor() as usize;
+                    let x1 = (x0 + 1).min(width - 1);
+                    let y1 = (y0 + 1).min(height - 1);
+
+                    let wx = source_x - x0 as f64;
+                    let wy = source_y - y0 as f64;
+
+                    let top_left = source[y0 * width + x0];
+                    let top_right = source[y0 * width + x1];
+                    let bottom_left = source[y1 * width + x0];
+                    let bottom_right = source[y1 * width + x1];
+
+                    for channel in 0..3 {
+                        let top = (1.0 - wx) * top_left[channel] + wx * top_right[channel];
+                        let bottom = (1.0 - wx) * bottom_left[channel] + wx * bottom_right[channel];
+
+                        pixel[channel] = (1.0 - wy) * top + wy * bottom;
+                    }
+                }
+            }
+        });
+
+        *self.data_mut_vec() = output.into_iter().flat_map(|pixel| pixel).collect();
+    }
+
+    fn derivative_x(&self, x: u32, y: u32) -> f64 {
+        let (x, y) = (x as usize, y as usize);
+        let width = self.width() as usize;
+        let pixels: Vec<&[f64]> = self.data().collect();
+
+        let luma = |row: usize, col: usize| {
+            let pixel = pixels[row * width + col];
+            0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+        };
+
+        if width <= 1 {
+            0.0
+        } else if x == 0 {
+            luma(y, 1) - luma(y, 0)
+        } else if x == width - 1 {
+            luma(y, x) - luma(y, x - 1)
+        } else {
+            (luma(y, x + 1) - luma(y, x - 1)) * 0.5
+        }
+    }
+
+    fn derivative_y(&self, x: u32, y: u32) -> f64 {
+        let (x, y) = (x as usize, y as usize);
+        let (width, height) = (self.width() as usize, self.height() as usize);
+        let pixels: Vec<&[f64]> = self.data().collect();
+
+        let luma = |row: usize, col: usize| {
+            let pixel = pixels[row * width + col];
+            0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+        };
+
+        if height <= 1 {
+            0.0
+        } else if y == 0 {
+            luma(1, x) - luma(0, x)
+        } else if y == height - 1 {
+            luma(y, x) - luma(y - 1, x)
+        } else {
+            (luma(y + 1, x) - luma(y - 1, x)) * 0.5
+        }
+    }
+
+    fn gradient_edge(&mut self) {
+        let mut copy = self.clone();
+
+        copy.par_iter_mut().enumerate().for_each(|(i, p)| {
+            let width = self.get_dimensions().0;
+            let x = i as u32 % width;
+            let y = i as u32 / width;
+            let dx = self.derivative_x(x, y);
+            let dy = self.derivative_y(x, y);
+            *p = dx.hypot(dy).clamp(0.0, 1.0);
+        });
+
+        *self = copy;
+    }
+
+    fn sobel(&mut self) {
+        let mut s2 = self.clone();
+        s2.convolve(3, vec![-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]);
+        self.convolve(3, vec![-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]);
+
+        self.par_iter_mut().enumerate().for_each(|(i, px)| {
+            let dot = px.hypot(s2[i]);
+            *px = dot.clamp(0.0, 1.0)
+        });
+    }
+
+    fn laplacian(&mut self, amount: f64) {
+        assert!(amount.is_finite() && amount >= 0.0);
+
+        let mut laplacian = self.clone();
+        laplacian.convolve(3, vec![0.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 0.0]);
+
+        self.data_mut()
+            .zip(laplacian.data())
+            .for_each(|(pixel, lap)| {
+                for channel in 0..3 {
+                    pixel[channel] = (pixel[channel] + amount * lap[channel]).clamp(0.0, 1.0);
+                }
+            });
+    }
+
+    fn high_boost(&mut self, amount: f64) {
+        assert!(amount.is_finite() && amount >= 0.0);
+
+        let mut blurred = self.clone();
+        blurred.ponderated_mean_filter();
+
+        self.data_mut()
+            .zip(blurred.data())
+            .for_each(|(pixel, blur)| {
+                for channel in 0..3 {
+                    pixel[channel] = (pixel[channel] + amount * (pixel[channel] - blur[channel]))
+                        .clamp(0.0, 1.0);
+                }
             });
     }
 }
