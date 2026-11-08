@@ -2,7 +2,6 @@ use std::{
     error::Error,
     ops::{Deref, DerefMut},
     path::Path,
-    slice::{ChunksExact, ChunksExactMut},
 };
 
 use rayon::{

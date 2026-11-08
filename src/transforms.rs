@@ -117,14 +117,25 @@ impl Transform for PixelArray {
     }
 
     fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]) {
+        assert!(
+            a.iter().chain(b.iter()).all(|value| value.is_finite())
+                && 0.0 <= a[0]
+                && a[0] < b[0]
+                && b[0] <= 1.0
+                && 0.0 <= a[1]
+                && a[1] < b[1]
+                && b[1] <= 1.0,
+            "Os pontos de contraste devem estar ordenados dentro do intervalo [0, 1]"
+        );
+
         self.apply(|p| {
-            if *p < a[0] {
-                *p *= a[1] / a[0]
+            *p = if *p < a[0] {
+                *p * (a[1] / a[0])
             } else if *p < b[0] {
-                *p = *p * (b[1] - a[1] / b[0] - a[0]) + a[1]
+                a[1] + (*p - a[0]) * ((b[1] - a[1]) / (b[0] - a[0]))
             } else {
-                *p = *p * (1.0 - b[1] / 1.0 - b[0]) + b[1]
-            }
+                b[1] + (*p - b[0]) * ((1.0 - b[1]) / (1.0 - b[0]))
+            };
         });
     }
 
@@ -143,31 +154,36 @@ impl Transform for PixelArray {
 
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data = self.hist();
-
         let max_count = data.iter().copied().max().unwrap_or(0);
+        let y_max = max_count.saturating_add(1).max(1);
 
-        let root = BitMapBackend::new("hist_plot.png", (640, 480)).into_drawing_area();
+        let root = BitMapBackend::new("hist_plot.png", (900, 600)).into_drawing_area();
 
-        root.fill(&WHITE)?;
+        root.fill(&RGBColor(248, 250, 252))?;
 
         let mut chart = ChartBuilder::on(&root)
-            .caption("Histograma :)", ("sans-serif", 30).into_font())
-            .margin(10)
-            .x_label_area_size(40)
-            .y_label_area_size(50)
-            .build_cartesian_2d((0usize..data.len()).into_segmented(), 0usize..max_count + 1)?;
+            .caption(
+                "Distribuição de frequências",
+                ("sans-serif", 32).into_font().color(&RGBColor(30, 41, 59)),
+            )
+            .margin(20)
+            .x_label_area_size(45)
+            .y_label_area_size(60)
+            .build_cartesian_2d((0usize..data.len()).into_segmented(), 0usize..y_max)?;
 
         chart
             .configure_mesh()
-            .disable_x_mesh()
-            .y_desc("Count")
             .x_desc("Bucket")
-            .axis_desc_style(("sans-serif", 15))
+            .y_desc("Frequência")
+            .axis_desc_style(("sans-serif", 16).into_font())
+            .label_style(("sans-serif", 13).into_font().color(&RGBColor(71, 85, 105)))
+            .axis_style(RGBColor(148, 163, 184))
+            .light_line_style(RGBColor(226, 232, 240))
             .draw()?;
 
         chart.draw_series(
             Histogram::vertical(&chart)
-                .style(RED.mix(0.5).filled())
+                .style(RGBColor(59, 130, 246).mix(0.8).filled().stroke_width(1))
                 .data(
                     data.iter()
                         .enumerate()
@@ -177,8 +193,7 @@ impl Transform for PixelArray {
 
         root.present()?;
 
-        println!("Result has been saved");
-
+        println!("Gráfico salvo em hist_plot.png");
         Ok(())
     }
 
@@ -267,7 +282,12 @@ impl Transform for PixelArray {
     }
 
     fn mean_filter(&mut self, size_filter: isize) {
-        let filter = vec![1.0 / 9.0; 9];
+        assert!(size_filter > 0 && size_filter % 2 == 1);
+
+        let coefficient_count = (size_filter * size_filter) as usize;
+        let weight = 1.0 / coefficient_count as f64;
+        let filter = vec![weight; coefficient_count];
+
         self.convolve(size_filter, filter);
     }
 
@@ -543,14 +563,21 @@ impl Transform for RGBPixelArray {
     }
 
     fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]) {
-        assert!(a[0] < b[0], "Input breakpoints must be increasing");
         assert!(
-            a[0] != 0.0 && b[0] != 1.0,
-            "Breakpoints cause division by zero"
+            a.iter().chain(b.iter()).all(|value| value.is_finite()),
+            "Breakpoints must be finite"
+        );
+        assert!(
+            0.0 < a[0] && a[0] <= b[0] && b[0] < 1.0,
+            "Input breakpoints must not be decreasing and inside (0, 1)"
+        );
+        assert!(
+            0.0 <= a[1] && a[1] < b[1] && b[1] <= 1.0,
+            "Output breakpoints must be increasing and inside [0, 1]"
         );
 
-        self.apply(|p| {
-            for channel in &mut p[..3] {
+        self.apply(|pixel| {
+            for channel in &mut pixel[..3] {
                 *channel = if *channel < a[0] {
                     *channel * (a[1] / a[0])
                 } else if *channel < b[0] {
@@ -911,6 +938,7 @@ impl Transform for RGBPixelArray {
         *self.data_mut_vec() = output.into_iter().flat_map(|pixel| pixel).collect();
     }
 
+    // TODO: adaptar melhor essa função para rgb
     fn derivative_x(&self, x: u32, y: u32) -> f64 {
         let (x, y) = (x as usize, y as usize);
         let width = self.width() as usize;
@@ -932,6 +960,7 @@ impl Transform for RGBPixelArray {
         }
     }
 
+    // TODO: adaptar melhor essa função para rgb
     fn derivative_y(&self, x: u32, y: u32) -> f64 {
         let (x, y) = (x as usize, y as usize);
         let (width, height) = (self.width() as usize, self.height() as usize);
@@ -953,6 +982,7 @@ impl Transform for RGBPixelArray {
         }
     }
 
+    // TODO: adaptar melhor essa função para rgb
     fn gradient_edge(&mut self) {
         let mut copy = self.clone();
 
