@@ -36,6 +36,9 @@ enum Filters {
     Sobel,
     Laplacian,
     HighBoost,
+    RgbToHsi,
+    HsiHistogramPlot,
+    HsiHistogramEqualizer,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +150,7 @@ impl CasKod {
                         "1.0".into(),
                         "1.0".into(),
                     ],
+                    Filters::Scale => vec!["2.0".into(), "2.0".into(), "Nearest".into()],
                     Filters::Rotation => vec![
                         "0.0".into(),     // theta, em radianos
                         "0".into(),       // px
@@ -469,6 +473,7 @@ impl CasKod {
             Filters::HighBoost => {
                 transformer.high_boost(param_f64(parameters, 0, 1.0));
             }
+            Filters::RgbToHsi | Filters::HsiHistogramPlot | Filters::HsiHistogramEqualizer => {}
         }
     }
 
@@ -504,12 +509,7 @@ impl CasKod {
             }
             Filters::HistogramEqualizer => transformer.hist_eq(),
             Filters::GenericConvolution => {
-                let Some(size) = parameters
-                    .first()
-                    .and_then(|value| value.parse::<isize>().ok())
-                else {
-                    return;
-                };
+                let size = param_isize(parameters, 0, 0);
 
                 // Exige tamanho positivo e ímpar: 1, 3, 5, 7...
                 if size <= 0 || size % 2 == 0 {
@@ -540,35 +540,29 @@ impl CasKod {
             }
             Filters::PonderatedMeanFilter => transformer.ponderated_mean_filter(),
             Filters::Scale => {
+                let interpolation = match parameters.get(2).map(String::as_str) {
+                    Some("Bilinear") => pdi::transforms::Interpolation::Bilinear,
+                    _ => pdi::transforms::Interpolation::Nearest,
+                };
+
                 transformer.scale(
                     param_f64(parameters, 0, 2.0),
                     param_f64(parameters, 1, 2.0),
-                    pdi::transforms::Interpolation::Bilinear,
+                    interpolation,
                 );
             }
             Filters::Rotation => {
-                let theta = param_f64(parameters, 0, 0.0);
-
-                let Some(px) = parameters
-                    .get(1)
-                    .and_then(|value| value.parse::<i32>().ok())
-                else {
-                    return;
-                };
-
-                let Some(py) = parameters
-                    .get(2)
-                    .and_then(|value| value.parse::<i32>().ok())
-                else {
-                    return;
-                };
-
                 let interpolation = match parameters.get(3).map(String::as_str) {
                     Some("Bilinear") => pdi::transforms::Interpolation::Bilinear,
                     _ => pdi::transforms::Interpolation::Nearest,
                 };
 
-                transformer.rotation(theta, px, py, interpolation);
+                transformer.rotation(
+                    param_f64(parameters, 0, 0.0),
+                    param_isize(parameters, 1, 0) as i32,
+                    param_isize(parameters, 2, 0) as i32,
+                    interpolation,
+                );
             }
             Filters::GradientEdge => transformer.gradient_edge(),
             Filters::Sobel => transformer.sobel(),
@@ -578,6 +572,13 @@ impl CasKod {
             Filters::HighBoost => {
                 transformer.high_boost(param_f64(parameters, 0, 1.0));
             }
+            Filters::RgbToHsi => transformer.rgb_to_hsi(),
+            Filters::HsiHistogramPlot => {
+                transformer
+                    .hist_plot_hsi()
+                    .expect("falha ao gerar histograma HSI");
+            }
+            Filters::HsiHistogramEqualizer => transformer.hist_eq_hsi(),
         }
     }
 }
@@ -629,6 +630,7 @@ fn parameter_name(filter: &Filters, index: usize) -> String {
         Filters::Scale => match index {
             0 => "Escala X".into(),
             1 => "Escala Y".into(),
+            2 => "Interpolação (Nearest/Bilinear)".into(),
             _ => format!("Parâmetro {}", index + 1),
         },
 

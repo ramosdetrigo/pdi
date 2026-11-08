@@ -23,8 +23,6 @@ pub trait Transform {
 
     fn contrast_stretching(&mut self, a: [f64; 2], b: [f64; 2]);
 
-    fn hist(&self) -> [usize; 256];
-
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>>;
 
     fn hist_eq(&mut self);
@@ -137,19 +135,6 @@ impl Transform for PixelArray {
                 b[1] + (*p - b[0]) * ((1.0 - b[1]) / (1.0 - b[0]))
             };
         });
-    }
-
-    fn hist(&self) -> [usize; 256] {
-        self.data()
-            .par_iter()
-            .fold(
-                || [0usize; 256],
-                |mut hist, &p| {
-                    hist[(p.clamp(0.0, 1.0) * 255.0) as usize] += 1;
-                    hist
-                },
-            )
-            .reduce(|| [0; 256], |a, b| std::array::from_fn(|i| a[i] + b[i]))
     }
 
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -589,60 +574,52 @@ impl Transform for RGBPixelArray {
         });
     }
 
-    fn hist(&self) -> [usize; 256] {
-        self.data()
-            .fold(
-                || [0usize; 256],
-                |mut hist, pixel| {
-                    for &channel in &pixel[..3] {
-                        let bucket = (channel.clamp(0.0, 1.0) * 255.0) as usize;
-                        hist[bucket] += 1;
-                    }
-                    hist
-                },
-            )
-            .reduce(
-                || [0usize; 256],
-                |a, b| std::array::from_fn(|i| a[i] + b[i]),
-            )
-    }
-
     fn hist_plot(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data = self.hist();
 
-        let max_count = data.iter().copied().max().unwrap_or(0);
-
-        let root = BitMapBackend::new("hist_plot.png", (640, 480)).into_drawing_area();
-
+        let root = BitMapBackend::new("hist_plot.png", (640, 720)).into_drawing_area();
         root.fill(&WHITE)?;
 
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Histograma :)", ("sans-serif", 30).into_font())
-            .margin(10)
-            .x_label_area_size(40)
-            .y_label_area_size(50)
-            .build_cartesian_2d((0usize..data.len()).into_segmented(), 0usize..max_count + 1)?;
+        let areas = root.split_evenly((3, 1));
 
-        chart
-            .configure_mesh()
-            .disable_x_mesh()
-            .y_desc("Count")
-            .x_desc("Bucket")
-            .axis_desc_style(("sans-serif", 15))
-            .draw()?;
+        let channels = [
+            ("Red", &data[0], RED),
+            ("Green", &data[1], GREEN),
+            ("Blue", &data[2], BLUE),
+        ];
 
-        chart.draw_series(
-            Histogram::vertical(&chart)
-                .style(RED.mix(0.5).filled())
-                .data(
-                    data.iter()
+        for (area, (name, histogram, color)) in areas.iter().zip(channels) {
+            let max_count = histogram.iter().copied().max().unwrap_or(0);
+
+            let mut chart = ChartBuilder::on(area)
+                .caption(format!("{name} channel"), ("sans-serif", 20).into_font())
+                .margin(10)
+                .x_label_area_size(30)
+                .y_label_area_size(45)
+                .build_cartesian_2d(
+                    (0usize..256).into_segmented(),
+                    0usize..max_count.saturating_add(1),
+                )?;
+
+            chart
+                .configure_mesh()
+                .disable_x_mesh()
+                .y_desc("Count")
+                .x_desc("Bucket")
+                .axis_desc_style(("sans-serif", 12))
+                .draw()?;
+
+            chart.draw_series(
+                Histogram::vertical(&chart).style(color.filled()).data(
+                    histogram
+                        .iter()
                         .enumerate()
                         .map(|(bucket, count)| (bucket, *count)),
                 ),
-        )?;
+            )?;
+        }
 
         root.present()?;
-
         println!("Result has been saved");
 
         Ok(())
@@ -650,19 +627,32 @@ impl Transform for RGBPixelArray {
 
     fn hist_eq(&mut self) {
         let hist = self.hist();
-        let size: usize = hist.iter().sum();
 
-        if size == 0 {
+        let sizes: [usize; 3] = std::array::from_fn(|channel| hist[channel].iter().sum());
+
+        if sizes.iter().all(|&size| size == 0) {
             return;
         }
 
-        let cdf: [f64; 256] =
-            std::array::from_fn(|i| hist[..=i].iter().sum::<usize>() as f64 / size as f64);
+        let cdfs: [[f64; 256]; 3] = std::array::from_fn(|channel| {
+            let size = sizes[channel];
 
-        self.apply(|p| {
-            for channel in &mut p[..3] {
-                let bucket = (channel.clamp(0.0, 1.0) * 255.0) as usize;
-                *channel = cdf[bucket];
+            if size == 0 {
+                return [0.0; 256];
+            }
+
+            let mut cumulative = 0usize;
+
+            std::array::from_fn(|bucket| {
+                cumulative += hist[channel][bucket];
+                cumulative as f64 / size as f64
+            })
+        });
+
+        self.apply(|pixel| {
+            for (channel, value) in pixel[..3].iter_mut().enumerate() {
+                let bucket = (value.clamp(0.0, 1.0) * 255.0) as usize;
+                *value = cdfs[channel][bucket];
             }
         });
     }

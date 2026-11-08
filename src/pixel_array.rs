@@ -46,6 +46,20 @@ impl PixelArray {
     }
 
     #[inline]
+    pub fn hist(&self) -> [usize; 256] {
+        self.data()
+            .par_iter()
+            .fold(
+                || [0usize; 256],
+                |mut hist, &p| {
+                    hist[(p.clamp(0.0, 1.0) * 255.0) as usize] += 1;
+                    hist
+                },
+            )
+            .reduce(|| [0; 256], |a, b| std::array::from_fn(|i| a[i] + b[i]))
+    }
+
+    #[inline]
     pub fn get(&self, row: usize, col: usize) -> f64 {
         self.buffer[row * self.width as usize + col]
     }
