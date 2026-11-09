@@ -1,6 +1,6 @@
 #![allow(clippy::chunks_exact_to_as_chunks)]
 use iced::widget::{
-    button, column, container, image as iced_img, row, scrollable, text, text_input,
+    Space, button, column, container, image as iced_img, row, scrollable, text, text_input,
 };
 use iced::{Element, Length, Task};
 use image::{ColorType, DynamicImage};
@@ -266,125 +266,7 @@ impl CasKod {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        if let Some(filter) = self.pending_filter {
-            if matches!(filter, Filters::GenericConvolution) {
-                let size = self
-                    .parameters
-                    .first()
-                    .and_then(|value| value.parse::<usize>().ok())
-                    .filter(|&size| (1..=15).contains(&size))
-                    .unwrap_or(3);
-
-                let matrix_rows: Vec<Element<'_, Message>> = (0..size)
-                    .map(|row_index| {
-                        let cells: Vec<Element<'_, Message>> = (0..size)
-                            .map(|column_index| {
-                                let index = 1 + row_index * size + column_index;
-                                let value = self
-                                    .parameters
-                                    .get(index)
-                                    .map(String::as_str)
-                                    .unwrap_or("0.0");
-
-                                text_input("0.0", value)
-                                    .on_input(move |value| Message::ParameterChanged(index, value))
-                                    .width(Length::Fill)
-                                    .into()
-                            })
-                            .collect();
-
-                        row(cells).spacing(8).into()
-                    })
-                    .collect();
-
-                return container(
-                    column![
-                        text("Tamanho do kernel"),
-                        text_input(
-                            "Ex.: 3",
-                            self.parameters.first().map(String::as_str).unwrap_or("3"),
-                        )
-                        .on_input(|value| Message::ParameterChanged(0, value)),
-                        text("Coeficientes do kernel"),
-                        scrollable(column(matrix_rows).spacing(8)).height(Length::FillPortion(3)),
-                        button("Aplicar").on_press(Message::ApplyFilter),
-                        button("Cancelar").on_press(Message::CancelFilter),
-                    ]
-                    .spacing(10)
-                    .width(Length::Fill),
-                )
-                .padding(20)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into();
-            }
-
-            if matches!(filter, Filters::ChromaKey) {
-                let overlay_label = if self.chroma_key_overlay.is_some() {
-                    "Trocar imagem de overlay"
-                } else {
-                    "Selecionar imagem de overlay"
-                };
-
-                return container(
-                    column![
-                        text(format!("Filtro: {filter:?}")),
-                        text("Limiar"),
-                        text_input(
-                            "Digite um valor",
-                            self.parameters.first().map(String::as_str).unwrap_or("0.1"),
-                        )
-                        .on_input(|value| Message::ParameterChanged(0, value)),
-                        button(overlay_label).on_press(Message::PickChromaKeyOverlay),
-                        button("Aplicar").on_press(Message::ApplyFilter),
-                        button("Cancelar").on_press(Message::CancelFilter),
-                    ]
-                    .spacing(10)
-                    .width(Length::Fill),
-                )
-                .padding(20)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into();
-            }
-
-            let inputs: Vec<Element<'_, Message>> = self
-                .parameters
-                .iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    row![
-                        text(parameter_name(&filter, index)).width(Length::Fixed(160.0)),
-                        text_input("Digite um valor", value)
-                            .on_input(move |value| { Message::ParameterChanged(index, value) }),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center)
-                    .into()
-                })
-                .collect();
-
-            return container(
-                column![
-                    text(format!("Filtro: {filter:?}")),
-                    column(inputs).spacing(8),
-                    button("Aplicar").on_press(Message::ApplyFilter),
-                    button("Cancelar").on_press(Message::CancelFilter),
-                ]
-                .spacing(10)
-                .width(Length::Fill),
-            )
-            .padding(20)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
-        }
+        if let Some(filter) = self.pending_filter {}
 
         // Tela principal: imagem e botões.
         let left: Element<'_, Message> = match &self.image_handle {
@@ -426,20 +308,26 @@ impl CasKod {
             if self.image_was_grayscale && RGB_ONLY_FILTERS.contains(&filter) {
                 continue;
             }
+            let nome_filtro = filter_name(&filter);
             right = right.push(
-                button(text(format!("Filtro {:?}", filter)))
+                button(text(nome_filtro))
                     .on_press(Message::ExecuteFunction(filter))
                     .width(Length::Fill),
             );
         }
 
+        let parameters = self.parameter_container();
+
         row![
             container(left)
-                .center_x(Length::FillPortion(4))
+                .center_x(Length::FillPortion(3))
                 .center_y(Length::Fill),
-            scrollable(right)
-                .width(Length::FillPortion(1))
-                .height(Length::Fill),
+            column![
+                scrollable(right)
+                    .width(Length::FillPortion(2))
+                    .height(Length::Fill),
+                parameters
+            ]
         ]
         .width(Length::Fill)
         .height(Length::Fill)
@@ -685,6 +573,114 @@ impl CasKod {
             }
         }
     }
+
+    fn parameter_container(&self) -> Element<'_, Message> {
+        let mut ret = container(text("Selecione um filtro"));
+        if let Some(filter) = self.pending_filter {
+            if matches!(filter, Filters::GenericConvolution) {
+                let size = self
+                    .parameters
+                    .first()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .filter(|&size| (1..=15).contains(&size))
+                    .unwrap_or(3);
+
+                let matrix_rows: Vec<Element<'_, Message>> = (0..size)
+                    .map(|row_index| {
+                        let cells: Vec<Element<'_, Message>> = (0..size)
+                            .map(|column_index| {
+                                let index = 1 + row_index * size + column_index;
+                                let value = self
+                                    .parameters
+                                    .get(index)
+                                    .map(String::as_str)
+                                    .unwrap_or("0.0");
+
+                                text_input("0.0", value)
+                                    .on_input(move |value| Message::ParameterChanged(index, value))
+                                    .width(Length::Fill)
+                                    .into()
+                            })
+                            .collect();
+
+                        row(cells).spacing(8).into()
+                    })
+                    .collect();
+
+                ret = container(
+                    column![
+                        text("Tamanho do kernel"),
+                        text_input(
+                            "Ex.: 3",
+                            self.parameters.first().map(String::as_str).unwrap_or("3"),
+                        )
+                        .on_input(|value| Message::ParameterChanged(0, value)),
+                        text("Coeficientes do kernel"),
+                        scrollable(column(matrix_rows).spacing(8)).height(Length::FillPortion(3)),
+                        button("Aplicar").on_press(Message::ApplyFilter),
+                        button("Cancelar").on_press(Message::CancelFilter),
+                    ]
+                    .spacing(10),
+                );
+            } else if matches!(filter, Filters::ChromaKey) {
+                let overlay_label = if self.chroma_key_overlay.is_some() {
+                    "Trocar imagem de overlay"
+                } else {
+                    "Selecionar imagem de overlay"
+                };
+
+                ret = container(
+                    column![
+                        text(filter_name(&filter)),
+                        text("Limiar"),
+                        text_input(
+                            "Digite um valor",
+                            self.parameters.first().map(String::as_str).unwrap_or("0.1"),
+                        )
+                        .on_input(|value| Message::ParameterChanged(0, value)),
+                        button(overlay_label).on_press(Message::PickChromaKeyOverlay),
+                        button("Aplicar").on_press(Message::ApplyFilter),
+                        button("Cancelar").on_press(Message::CancelFilter),
+                    ]
+                    .spacing(10),
+                )
+            } else {
+                let inputs: Vec<Element<'_, Message>> = self
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| {
+                        row![
+                            text(parameter_name(&filter, index)).width(Length::Fixed(160.0)),
+                            text_input("Digite um valor", value)
+                                .on_input(move |value| { Message::ParameterChanged(index, value) }),
+                        ]
+                        .spacing(8)
+                        .align_y(iced::Alignment::Center)
+                        .into()
+                    })
+                    .collect();
+
+                let nome_filtro = filter_name(&filter);
+                ret = container(
+                    column![
+                        text(nome_filtro),
+                        column(inputs).spacing(8),
+                        button("Aplicar").on_press(Message::ApplyFilter),
+                        button("Cancelar").on_press(Message::CancelFilter),
+                    ]
+                    .spacing(10),
+                );
+            }
+        }
+
+        ret.padding(20)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 }
 
 fn load_image<S>(path: S) -> image::DynamicImage
@@ -706,6 +702,38 @@ fn param_isize(parameters: &[String], index: usize, default: isize) -> isize {
         .get(index)
         .and_then(|value| value.parse::<isize>().ok())
         .unwrap_or(default)
+}
+
+fn filter_name(filter: &Filters) -> String {
+    match filter {
+        Filters::Threshold => String::from("Limiar"),
+        Filters::Negative => String::from("Negativo"),
+        Filters::Brightness => String::from("Brilho"),
+        Filters::Gamma => String::from("Gamma???"),
+        Filters::Hide => String::from("Esconder mensagem"),
+        Filters::ContrastStretching => String::from("Ajuste de contraste"),
+        Filters::HistogramPlot => String::from("Plot de histograma"),
+        Filters::HistogramEqualizer => String::from("Equalizador de histograma"),
+        Filters::GenericConvolution => String::from("Convolução genérica"),
+        Filters::MedianFilter => String::from("Filtro da mediana"),
+        Filters::MeanFilter => String::from("Filtro da média simples"),
+        Filters::PonderatedMeanFilter => String::from("Filtro da média ponderada"),
+        Filters::Scale => String::from("Escala"),
+        Filters::Rotation => String::from("Rotação"),
+        Filters::GradientEdge => String::from("Gradiente???"),
+        Filters::Sobel => String::from("Filtro de Sobel"),
+        Filters::Laplacian => String::from("Filtro Laplaciano"),
+        Filters::HighBoost => String::from("Filtro High Boost"),
+        Filters::RgbToHsi => String::from("RGB para HSI"),
+        Filters::HsiToRgb => String::from("HSI para RGB"),
+        Filters::HsiHistogramPlot => String::from("Plot de histograma do HSI"),
+        Filters::HsiHistogramEqualizer => String::from("Equalizador de histograma do HSI"),
+        Filters::HsiAdjust => String::from("Ajuste de cor via HSI"),
+        Filters::GrayscaleSimple => String::from("RGB para Escala de cinza simples"),
+        Filters::GrayscaleWeighted => String::from("RGB para Escala de cinza ponderada"),
+        Filters::Sepia => String::from("Sepia"),
+        Filters::ChromaKey => String::from("Chroma Key"),
+    }
 }
 
 fn parameter_name(filter: &Filters, index: usize) -> String {
