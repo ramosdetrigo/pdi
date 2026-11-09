@@ -37,8 +37,11 @@ enum Filters {
     Laplacian,
     HighBoost,
     RgbToHsi,
+    HsiToRgb,
     HsiHistogramPlot,
     HsiHistogramEqualizer,
+    HsiAdjust,
+    ChromaKey,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +51,7 @@ enum Message {
     SaveImage,
     UpdateImage(DynamicImage),
     PickImage,
+    PickChromaKeyOverlay,
     ExecuteFunction(Filters),
     ParameterChanged(usize, String),
     ApplyFilter,
@@ -61,6 +65,7 @@ struct CasKod {
     image_was_grayscale: bool,
     pending_filter: Option<Filters>,
     parameters: Vec<String>,
+    chroma_key_overlay: Option<image::RgbImage>,
 }
 
 impl CasKod {
@@ -72,6 +77,7 @@ impl CasKod {
             image_was_grayscale: false,
             pending_filter: None,
             parameters: Vec::new(),
+            chroma_key_overlay: None,
         }
     }
 
@@ -132,6 +138,18 @@ impl CasKod {
                     return Task::done(Message::UpdateImage(load_image(file_path)));
                 }
             }
+
+            Message::PickChromaKeyOverlay => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp"])
+                    .pick_file()
+                {
+                    self.chroma_key_overlay = image::open(path).ok().map(|image| image.to_rgb8());
+                }
+
+                return iced::Task::none();
+            }
+
             Message::ExecuteFunction(filter) => {
                 self.parameters = match filter {
                     Filters::Threshold | Filters::Brightness => vec!["0.5".into()],
@@ -160,7 +178,10 @@ impl CasKod {
                         "Nearest".into(), // interpolação
                     ],
                     Filters::GradientEdge | Filters::Sobel => vec![],
-                    Filters::Laplacian | Filters::HighBoost => vec!["1.0".into()],
+                    Filters::Laplacian | Filters::HighBoost | Filters::ChromaKey => {
+                        vec!["1.0".into()]
+                    }
+                    Filters::HsiAdjust => vec!["0.5".into(), "0.5".into(), "0.5".into()],
                     _ => vec![],
                 };
 
@@ -290,6 +311,37 @@ impl CasKod {
                 .into();
             }
 
+            if matches!(filter, Filters::ChromaKey) {
+                let overlay_label = if self.chroma_key_overlay.is_some() {
+                    "Trocar imagem de overlay"
+                } else {
+                    "Selecionar imagem de overlay"
+                };
+
+                return container(
+                    column![
+                        text(format!("Filtro: {filter:?}")),
+                        text("Limiar"),
+                        text_input(
+                            "Digite um valor",
+                            self.parameters.first().map(String::as_str).unwrap_or("0.1"),
+                        )
+                        .on_input(|value| Message::ParameterChanged(0, value)),
+                        button(overlay_label).on_press(Message::PickChromaKeyOverlay),
+                        button("Aplicar").on_press(Message::ApplyFilter),
+                        button("Cancelar").on_press(Message::CancelFilter),
+                    ]
+                    .spacing(10)
+                    .width(Length::Fill),
+                )
+                .padding(20)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+            }
+
             let inputs: Vec<Element<'_, Message>> = self
                 .parameters
                 .iter()
@@ -308,7 +360,7 @@ impl CasKod {
 
             return container(
                 column![
-                    text(format!("Parâmetros: {filter:?}")),
+                    text(format!("Filtro: {filter:?}")),
                     column(inputs).spacing(8),
                     button("Aplicar").on_press(Message::ApplyFilter),
                     button("Cancelar").on_press(Message::CancelFilter),
@@ -475,7 +527,12 @@ impl CasKod {
             Filters::HighBoost => {
                 transformer.high_boost(param_f64(parameters, 0, 1.0));
             }
-            Filters::RgbToHsi | Filters::HsiHistogramPlot | Filters::HsiHistogramEqualizer => {}
+            Filters::RgbToHsi
+            | Filters::HsiHistogramPlot
+            | Filters::HsiHistogramEqualizer
+            | Filters::HsiAdjust
+            | Filters::HsiToRgb
+            | Filters::ChromaKey => {}
         }
     }
 
@@ -575,12 +632,26 @@ impl CasKod {
                 transformer.high_boost(param_f64(parameters, 0, 1.0));
             }
             Filters::RgbToHsi => transformer.rgb_to_hsi(),
+            Filters::HsiToRgb => transformer.hsi_to_rgb(),
             Filters::HsiHistogramPlot => {
                 transformer
                     .hist_plot_hsi()
                     .expect("falha ao gerar histograma HSI");
             }
             Filters::HsiHistogramEqualizer => transformer.hist_eq_hsi(),
+            Filters::HsiAdjust => transformer.adjust_hsi(
+                param_f64(parameters, 0, 0.5),
+                param_f64(parameters, 1, 0.5),
+                param_f64(parameters, 2, 0.5),
+            ),
+            Filters::ChromaKey => {
+                if let (Some(transformer), Some(overlay)) = (
+                    self.transformer_rgb.as_mut(),
+                    self.chroma_key_overlay.as_ref(),
+                ) {
+                    transformer.chroma_key(param_f64(parameters, 0, 0.5), overlay);
+                }
+            }
         }
     }
 }

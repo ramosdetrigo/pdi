@@ -2,13 +2,22 @@ use crate::pixel_array::PixelArray;
 use crate::rgb_pixel_array::RGBPixelArray;
 use plotters::prelude::*;
 use rayon::prelude::*;
+use std::f64::consts::TAU;
 
 pub enum Interpolation {
     Nearest,
     Bilinear,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Complex {
+    re: f64,
+    im: f64,
+}
+
 pub trait Transform {
+    type Output;
+
     fn threshold(&mut self, threshold: f64);
 
     fn neg(&mut self);
@@ -50,9 +59,13 @@ pub trait Transform {
     fn laplacian(&mut self, amount: f64);
 
     fn high_boost(&mut self, amount: f64);
+
+    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str>;
 }
 
 impl Transform for PixelArray {
+    type Output = Vec<Complex>;
+
     fn brightness(&mut self, c: f64) {
         self.apply(|p| *p *= c);
     }
@@ -467,9 +480,38 @@ impl Transform for PixelArray {
                 *pixel = (*pixel + amount * (*pixel - blur)).clamp(0.0, 1.0);
             });
     }
+
+    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str> {
+        let (width, height) = self.get_dimensions();
+        let mut output = vec![Complex::default(); (width * height) as usize];
+
+        for v in 0..height {
+            for u in 0..width {
+                let mut sum = Complex::default();
+
+                for y in 0..height {
+                    for x in 0..width {
+                        let pixel = self.get(y as usize, x as usize) as f64;
+                        let angle = -TAU
+                            * ((u as f64 * x as f64 / width as f64)
+                                + (v as f64 * y as f64 / height as f64));
+
+                        sum.re += pixel * angle.cos();
+                        sum.im += pixel * angle.sin();
+                    }
+                }
+
+                output[(v * width + u) as usize] = sum;
+            }
+        }
+
+        Ok(output)
+    }
 }
 
 impl Transform for RGBPixelArray {
+    type Output = Vec<[Complex; 3]>;
+
     fn brightness(&mut self, c: f64) {
         self.apply(|p| {
             for channel in &mut p[..3] {
@@ -1032,5 +1074,46 @@ impl Transform for RGBPixelArray {
                         .clamp(0.0, 1.0);
                 }
             });
+    }
+
+    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str> {
+        let (width, height) = self.get_dimensions();
+
+        if width == 0 || height == 0 {
+            return Err("Dimensões inválidas");
+        }
+
+        let mut output = vec![[Complex::default(); 3]; (width * height) as usize];
+
+        for v in 0..height {
+            for u in 0..width {
+                let mut sums = [Complex::default(); 3];
+
+                for y in 0..height {
+                    for x in 0..width {
+                        let pixel = self.get(y as usize, x as usize);
+
+                        let angle = -TAU
+                            * ((u as f64 * x as f64 / width as f64)
+                                + (v as f64 * y as f64 / height as f64));
+
+                        let cos = angle.cos();
+                        let sin = angle.sin();
+
+                        for channel in 0..3 {
+                            let value = pixel[channel];
+
+                            sums[channel].re += value * cos;
+                            sums[channel].im += value * sin;
+                        }
+                    }
+                }
+
+                let index = (v * width + u) as usize;
+                output[index] = sums;
+            }
+        }
+
+        Ok(output)
     }
 }
