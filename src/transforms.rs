@@ -529,6 +529,7 @@ impl Transform for RGBPixelArray {
 
         let mut chars = Vec::new();
 
+        #[allow(clippy::chunks_exact_to_as_chunks)]
         for samples_for_byte in samples.chunks_exact(8) {
             let mut byte = 0u8;
 
@@ -610,12 +611,15 @@ impl Transform for RGBPixelArray {
                 .draw()?;
 
             chart.draw_series(
-                Histogram::vertical(&chart).margin(1).style(color.filled()).data(
-                    histogram
-                        .iter()
-                        .enumerate()
-                        .map(|(bucket, count)| (bucket, *count)),
-                ),
+                Histogram::vertical(&chart)
+                    .margin(1)
+                    .style(color.filled())
+                    .data(
+                        histogram
+                            .iter()
+                            .enumerate()
+                            .map(|(bucket, count)| (bucket, *count)),
+                    ),
             )?;
         }
 
@@ -852,7 +856,7 @@ impl Transform for RGBPixelArray {
             }
         });
 
-        let output: Vec<f64> = output.into_iter().flat_map(|pixel| pixel).collect();
+        let output: Vec<f64> = output.into_iter().flatten().collect();
 
         self.set_dimensions(new_width as u32, new_height as u32);
         *self.data_mut_vec() = output;
@@ -925,7 +929,7 @@ impl Transform for RGBPixelArray {
             }
         });
 
-        *self.data_mut_vec() = output.into_iter().flat_map(|pixel| pixel).collect();
+        *self.data_mut_vec() = output.into_iter().flatten().collect();
     }
 
     // TODO: adaptar melhor essa função para rgb

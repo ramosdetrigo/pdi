@@ -99,7 +99,7 @@ impl RGBPixelArray {
             .data()
             .flat_map_iter(|p| {
                 let gray = (p[0] + p[1] + p[2]) / 3.0;
-                std::iter::repeat(gray).take(3)
+                std::iter::repeat_n(gray, 3)
             })
             .collect();
 
@@ -115,7 +115,7 @@ impl RGBPixelArray {
             .data()
             .flat_map_iter(|p| {
                 let gray = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
-                std::iter::repeat(gray).take(3)
+                std::iter::repeat_n(gray, 3)
             })
             .collect();
 
@@ -201,6 +201,55 @@ impl RGBPixelArray {
         });
     }
 
+    pub fn hsi_to_rgb(&mut self) {
+        self.apply(|pixel| {
+            let hue = pixel[0].rem_euclid(1.0) * 360.0;
+            let saturation = pixel[1].clamp(0.0, 1.0);
+            let intensity = pixel[2].clamp(0.0, 1.0);
+
+            let (r, g, b) = if saturation == 0.0 {
+                (intensity, intensity, intensity)
+            } else if hue < 120.0 {
+                let b = intensity * (1.0 - saturation);
+                let r = intensity
+                    * (1.0
+                        + (saturation * hue.to_radians().cos()) / (60.0 - hue).to_radians().cos());
+                let g = 3.0 * intensity - (r + b);
+                (r, g, b)
+            } else if hue < 240.0 {
+                let h = hue - 120.0;
+                let r = intensity * (1.0 - saturation);
+                let g = intensity
+                    * (1.0 + (saturation * h.to_radians().cos()) / (60.0 - h).to_radians().cos());
+                let b = 3.0 * intensity - (r + g);
+                (r, g, b)
+            } else {
+                let h = hue - 240.0;
+                let g = intensity * (1.0 - saturation);
+                let b = intensity
+                    * (1.0 + (saturation * h.to_radians().cos()) / (60.0 - h).to_radians().cos());
+                let r = 3.0 * intensity - (g + b);
+                (r, g, b)
+            };
+
+            pixel[0] = r.clamp(0.0, 1.0);
+            pixel[1] = g.clamp(0.0, 1.0);
+            pixel[2] = b.clamp(0.0, 1.0);
+        });
+    }
+
+    pub fn adjust_hsi(&mut self, hue_shift: f64, saturation_factor: f64, brightness_factor: f64) {
+        self.rgb_to_hsi();
+
+        self.apply(|pixel| {
+            pixel[0] = (pixel[0] + hue_shift).rem_euclid(1.0);
+            pixel[1] = (pixel[1] * saturation_factor).clamp(0.0, 1.0);
+            pixel[2] = (pixel[2] * brightness_factor).clamp(0.0, 1.0);
+        });
+
+        self.hsi_to_rgb();
+    }
+
     pub fn hist_plot_hsi(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data = self.hist();
 
@@ -275,6 +324,32 @@ impl RGBPixelArray {
             let bucket = (intensity * 255.0) as usize;
             pixel[2] = cdf[bucket];
         });
+    }
+
+    pub fn chroma_key(&mut self, threshold: f64, overlay: &RgbImage) {
+        let mut hsi = self.clone();
+        hsi.rgb_to_hsi();
+
+        let width = self.width as usize;
+        let height = self.height as usize;
+
+        for y in 0..height {
+            for x in 0..width {
+                let p = hsi.get(y, x);
+                let dh = (p[0] - 1.0 / 3.0).abs();
+                let delta_h = dh.min(1.0 - dh);
+                let delta_s = (p[1] - 1.0).abs();
+
+                if delta_h + delta_s <= threshold
+                    && let Some(pixel) = overlay.get_pixel_checked(x as u32, y as u32)
+                {
+                    let anchor = 3 * (y * width + x);
+                    self.buffer[anchor] = pixel[0] as f64 / 255.0;
+                    self.buffer[anchor + 1] = pixel[1] as f64 / 255.0;
+                    self.buffer[anchor + 2] = pixel[2] as f64 / 255.0;
+                }
+            }
+        }
     }
 }
 
