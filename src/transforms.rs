@@ -60,7 +60,12 @@ pub trait Transform {
 
     fn high_boost(&mut self, amount: f64);
 
-    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str>;
+    fn discrete_fourier_transform(&mut self) -> Result<Self::Output, &'static str>;
+
+    fn inverse_discrete_fourier_transform(
+        &mut self,
+        spectrum: &Self::Output,
+    ) -> Result<(), &'static str>;
 }
 
 impl Transform for PixelArray {
@@ -481,7 +486,7 @@ impl Transform for PixelArray {
             });
     }
 
-    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str> {
+    fn discrete_fourier_transform(&mut self) -> Result<Self::Output, &'static str> {
         let (width, height) = self.get_dimensions();
         let mut output = vec![Complex::default(); (width * height) as usize];
 
@@ -506,6 +511,47 @@ impl Transform for PixelArray {
         }
 
         Ok(output)
+    }
+
+    fn inverse_discrete_fourier_transform(
+        &mut self,
+        spectrum: &Self::Output,
+    ) -> Result<(), &'static str> {
+        let (width, height) = self.get_dimensions();
+
+        if width == 0 || height == 0 || spectrum.len() != (width * height) as usize {
+            return Err("Dimensões inválidas ou tamanho do espectro incompatível");
+        }
+
+        let normalization = (width * height) as f64;
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut sum = Complex::default();
+
+                for v in 0..height {
+                    for u in 0..width {
+                        let coefficient = spectrum[(v * width + u) as usize];
+
+                        let angle = TAU
+                            * (u as f64 * x as f64 / width as f64
+                                + v as f64 * y as f64 / height as f64);
+
+                        let cos = angle.cos();
+                        let sin = angle.sin();
+
+                        // (a + bi)(cos + i sin)
+                        sum.re += coefficient.re * cos - coefficient.im * sin;
+                        sum.im += coefficient.re * sin + coefficient.im * cos;
+                    }
+                }
+
+                let index = (y * width + x) as usize;
+                self.buffer[index] = sum.re / normalization;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1076,7 +1122,7 @@ impl Transform for RGBPixelArray {
             });
     }
 
-    fn discrete_fourrier_transform(&mut self) -> Result<Self::Output, &'static str> {
+    fn discrete_fourier_transform(&mut self) -> Result<Self::Output, &'static str> {
         let (width, height) = self.get_dimensions();
 
         if width == 0 || height == 0 {
@@ -1115,5 +1161,54 @@ impl Transform for RGBPixelArray {
         }
 
         Ok(output)
+    }
+
+    fn inverse_discrete_fourier_transform(
+        &mut self,
+        spectrum: &Self::Output,
+    ) -> Result<(), &'static str> {
+        let (width, height) = self.get_dimensions();
+
+        if width == 0 || height == 0 || spectrum.len() != (width * height) as usize {
+            return Err("Dimensões inválidas ou tamanho do espectro incompatível");
+        }
+
+        let normalization = (width * height) as f64;
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut sums = [Complex::default(); 3];
+
+                for v in 0..height {
+                    for u in 0..width {
+                        let coefficients = spectrum[(v * width + u) as usize];
+
+                        let angle = TAU
+                            * (u as f64 * x as f64 / width as f64
+                                + v as f64 * y as f64 / height as f64);
+
+                        let cos = angle.cos();
+                        let sin = angle.sin();
+
+                        for channel in 0..3 {
+                            let coefficient = coefficients[channel];
+
+                            // (a + bi)(cos + i sin)
+                            sums[channel].re += coefficient.re * cos - coefficient.im * sin;
+                            sums[channel].im += coefficient.re * sin + coefficient.im * cos;
+                        }
+                    }
+                }
+
+                let pixel_index = (y * width + x) as usize;
+                let buffer_index = 3 * pixel_index;
+
+                for channel in 0..3 {
+                    self.buffer[buffer_index + channel] = sums[channel].re / normalization;
+                }
+            }
+        }
+
+        Ok(())
     }
 }

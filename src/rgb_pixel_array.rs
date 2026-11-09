@@ -19,7 +19,7 @@ use crate::pixel_array::PixelArray;
 pub struct RGBPixelArray {
     width: u32,
     height: u32,
-    buffer: Vec<f64>,
+    pub(super) buffer: Vec<f64>,
 }
 
 impl RGBPixelArray {
