@@ -6,7 +6,7 @@ use iced::{Element, Length, Task};
 use image::{ColorType, DynamicImage};
 use pdi::pixel_array::{self, PixelArray};
 use pdi::rgb_pixel_array::{self, RGBPixelArray};
-use pdi::transforms::Transform;
+use pdi::transforms::{Complex, Transform};
 use std::path::Path;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -47,6 +47,7 @@ enum Filters {
     GrayscaleWeighted,
     Sepia,
     ChromaKey,
+    FourierTransform,
 }
 
 enum Tos {
@@ -62,6 +63,7 @@ enum Message {
     UpdateImage(DynamicImage),
     PickImage,
     PickChromaKeyOverlay,
+    FourierSpectrum,
     ExecuteFunction(Filters),
     ParameterChanged(usize, String),
     ApplyFilter,
@@ -76,6 +78,7 @@ struct CasKod {
     pending_filter: Option<Filters>,
     parameters: Vec<String>,
     chroma_key_overlay: Option<image::RgbImage>,
+    spectrum_fourier: Option<Vec<Complex>>,
 }
 
 impl CasKod {
@@ -88,6 +91,7 @@ impl CasKod {
             pending_filter: None,
             parameters: Vec::new(),
             chroma_key_overlay: None,
+            spectrum_fourier: None,
         }
     }
 
@@ -159,6 +163,8 @@ impl CasKod {
 
                 return iced::Task::none();
             }
+
+            Message::FourierSpectrum => {}
 
             Message::ExecuteFunction(filter) => {
                 self.parameters = match filter {
@@ -232,11 +238,8 @@ impl CasKod {
                     return iced::Task::none();
                 };
 
-                let parameters = self.parameters.clone();
-                let is_grayscale = self.image_was_grayscale;
-
-                if is_grayscale {
-                    self.apply_gray_filter(filter, &parameters);
+                if self.image_was_grayscale {
+                    self.apply_gray_filter(filter, &self.parameters);
 
                     let Some(transformer) = self.transformer.as_ref() else {
                         return iced::Task::none();
@@ -248,7 +251,7 @@ impl CasKod {
                         image::DynamicImage::ImageLuma8(gray),
                     ));
                 } else {
-                    self.apply_rgb_filter(filter, &parameters);
+                    self.apply_rgb_filter(filter, &self.parameters);
 
                     let Some(transformer) = self.transformer_rgb.as_ref() else {
                         return iced::Task::none();
@@ -440,6 +443,9 @@ impl CasKod {
             Filters::HighBoost => {
                 transformer.high_boost(param_f64(parameters, 0, 1.0));
             }
+            Filters::FourierTransform => {
+                self.spectrum_fourier = Some(transformer.discrete_fourier_transform());
+            }
             Filters::RgbToHsi
             | Filters::HsiHistogramPlot
             | Filters::HsiHistogramEqualizer
@@ -571,6 +577,7 @@ impl CasKod {
                     transformer.chroma_key(param_f64(parameters, 0, 0.5), overlay);
                 }
             }
+            Filters::FourierTransform => {}
         }
     }
 
@@ -733,6 +740,7 @@ fn filter_name(filter: &Filters) -> String {
         Filters::GrayscaleWeighted => String::from("RGB para Escala de cinza ponderada"),
         Filters::Sepia => String::from("Sepia"),
         Filters::ChromaKey => String::from("Chroma Key"),
+        Filters::FourierTransform => String::from("Transformada de Fourier"),
     }
 }
 

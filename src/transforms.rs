@@ -2,6 +2,7 @@ use crate::pixel_array::PixelArray;
 use crate::rgb_pixel_array::RGBPixelArray;
 use plotters::prelude::*;
 use rayon::prelude::*;
+use std::f64::consts::PI;
 use std::f64::consts::TAU;
 
 pub enum Interpolation {
@@ -11,8 +12,8 @@ pub enum Interpolation {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Complex {
-    re: f64,
-    im: f64,
+    real_part: f64,
+    imaginary_part: f64,
 }
 
 pub trait Transform {
@@ -61,12 +62,9 @@ pub trait Transform {
 
     fn high_boost(&mut self, amount: f64);
 
-    fn discrete_fourier_transform(&mut self) -> Result<Self::Output, &'static str>;
+    fn discrete_fourier_transform(&mut self) -> Self::Output;
 
-    fn inverse_discrete_fourier_transform(
-        &mut self,
-        spectrum: &Self::Output,
-    ) -> Result<(), &'static str>;
+    fn inverse_discrete_fourier_transform(&mut self, spectrum: &Self::Output);
 }
 
 impl Transform for PixelArray {
@@ -488,74 +486,54 @@ impl Transform for PixelArray {
             });
     }
 
-    fn discrete_fourier_transform(&mut self) -> Result<Self::Output, &'static str> {
+    fn discrete_fourier_transform(&mut self) -> Self::Output {
         let (width, height) = self.get_dimensions();
         let mut output = vec![Complex::default(); (width * height) as usize];
 
-        for v in 0..height {
-            for u in 0..width {
+        for row in 0..height {
+            for lin in 0..width {
                 let mut sum = Complex::default();
 
                 for y in 0..height {
                     for x in 0..width {
                         let pixel = self.get(y as usize, x as usize) as f64;
-                        let angle = -TAU
-                            * ((u as f64 * x as f64 / width as f64)
-                                + (v as f64 * y as f64 / height as f64));
-
-                        sum.re += pixel * angle.cos();
-                        sum.im += pixel * angle.sin();
+                        let angle = -2.0
+                            * PI
+                            * ((lin * x) as f64 / width as f64 + (row * y) as f64 / height as f64);
+                        sum.real_part += pixel * angle.cos();
+                        sum.imaginary_part -= pixel * angle.sin();
                     }
                 }
 
-                output[(v * width + u) as usize] = sum;
+                output[(row * width + lin) as usize] = sum;
             }
         }
-
-        Ok(output)
+        output
     }
 
-    fn inverse_discrete_fourier_transform(
-        &mut self,
-        spectrum: &Self::Output,
-    ) -> Result<(), &'static str> {
+    fn inverse_discrete_fourier_transform(&mut self, spectrum: &Self::Output) {
         let (width, height) = self.get_dimensions();
+        let mut output = vec![f64; (width * height) as usize];
 
-        if width == 0 || height == 0 || spectrum.len() != (width * height) as usize {
-            return Err("Dimensões inválidas ou tamanho do espectro incompatível");
-        }
+        for row in 0..height {
+            for lin in 0..width {
+                let mut soma_real = 0.0;
 
-        let normalization = (width * height) as f64;
-
-        for y in 0..height {
-            for x in 0..width {
-                let mut sum = Complex::default();
-
-                for v in 0..height {
-                    for u in 0..width {
-                        let coefficient = spectrum[(v * width + u) as usize];
-
-                        let angle = TAU
-                            * (u as f64 * x as f64 / width as f64
-                                + v as f64 * y as f64 / height as f64);
-
-                        let cos = angle.cos();
-                        let sin = angle.sin();
-
-                        // (a + bi)(cos + i sin)
-                        sum.re += coefficient.re * cos - coefficient.im * sin;
-                        sum.im += coefficient.re * sin + coefficient.im * cos;
+                for y in 0..height {
+                    for x in 0..width {
+                        let ponto = spectrum[(y * width + x) as usize];
+                        let angle = 2.0
+                            * PI
+                            * ((lin * x) as f64 / width as f64 + (row * y) as f64 / height as f64);
+                        soma_real += ponto.real_part * angle.cos() - ponto.imaginary_part * angle.sin()
                     }
                 }
 
-                let index = (y * width + x) as usize;
-                self.buffer[index] = sum.re / normalization;
+                output[(row * width + lin) as usize] = soma_real;
             }
         }
-
-        Ok(())
+        self.buffer = output;
     }
-}
 
 impl Transform for RGBPixelArray {
     type Output = Vec<[Complex; 3]>;
@@ -1223,4 +1201,6 @@ impl Transform for RGBPixelArray {
 
         Ok(())
     }
+
+    todo!();
 }
