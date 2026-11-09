@@ -88,15 +88,17 @@ impl CasKod {
             }
 
             Message::SaveImage => {
-                if let (Some(path), Some(transformer)) = (
-                    rfd::FileDialog::new()
-                        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp"])
-                        .save_file(),
-                    self.transformer.as_ref(),
-                ) {
-                    // TODO: salvar imagem rgba
-                    let gray = transformer.clone().into_luma8();
-                    let _ = gray.save(path);
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp"])
+                    .save_file()
+                {
+                    if self.image_was_grayscale {
+                        if let Some(transformer) = self.transformer.as_ref() {
+                            let _ = transformer.clone().into_luma8().save(path);
+                        }
+                    } else if let Some(transformer_rgb) = self.transformer_rgb.as_ref() {
+                        let _ = transformer_rgb.clone().into_rgb().save(path);
+                    }
                 }
             }
 
