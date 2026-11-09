@@ -1,3 +1,4 @@
+#![allow(clippy::chunks_exact_to_as_chunks)]
 use iced::widget::{
     button, column, container, image as iced_img, row, scrollable, text, text_input,
 };
@@ -16,7 +17,7 @@ fn main() {
         .run();
 }
 
-#[derive(EnumIter, Debug, Clone, Copy)]
+#[derive(EnumIter, Debug, Clone, Copy, PartialEq, Eq)]
 enum Filters {
     Threshold,
     Negative,
@@ -36,6 +37,7 @@ enum Filters {
     Sobel,
     Laplacian,
     HighBoost,
+
     RgbToHsi,
     HsiToRgb,
     HsiHistogramPlot,
@@ -45,6 +47,11 @@ enum Filters {
     GrayscaleWeighted,
     Sepia,
     ChromaKey,
+}
+
+enum Tos {
+    RgbToGrayscale,
+    GrayscaleToRgb,
 }
 
 #[derive(Debug, Clone)]
@@ -403,7 +410,22 @@ impl CasKod {
                 );
         }
 
+        const RGB_ONLY_FILTERS: [Filters; 9] = [
+            Filters::RgbToHsi,
+            Filters::HsiToRgb,
+            Filters::HsiHistogramPlot,
+            Filters::HsiHistogramEqualizer,
+            Filters::HsiAdjust,
+            Filters::GrayscaleSimple,
+            Filters::GrayscaleWeighted,
+            Filters::Sepia,
+            Filters::ChromaKey,
+        ];
+
         for filter in Filters::iter() {
+            if self.image_was_grayscale && RGB_ONLY_FILTERS.contains(&filter) {
+                continue;
+            }
             right = right.push(
                 button(text(format!("Filtro {:?}", filter)))
                     .on_press(Message::ExecuteFunction(filter))

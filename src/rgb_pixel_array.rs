@@ -11,7 +11,7 @@ use rayon::{
     prelude::*,
 };
 
-use image::{DynamicImage, ImageReader, RgbImage};
+use image::{DynamicImage, GrayImage, ImageReader, RgbImage};
 
 use crate::pixel_array::PixelArray;
 
@@ -40,6 +40,20 @@ impl RGBPixelArray {
                 .collect(),
         )
         .unwrap()
+    }
+
+    pub fn into_pixel_array(mut self) -> PixelArray {
+        self.grayscale_weighted();
+        let img = GrayImage::from_vec(
+            self.width,
+            self.height,
+            self.buffer
+                .chunks_exact(3)
+                .map(|p| (p[0] * 255.0) as u8)
+                .collect(),
+        )
+        .unwrap();
+        DynamicImage::ImageLuma8(img).into()
     }
 
     #[inline]

@@ -4,11 +4,13 @@ use std::{
     path::Path,
 };
 
-use image::{DynamicImage, GrayImage, ImageReader};
+use image::{DynamicImage, GrayImage, ImageReader, RgbImage};
 use rayon::{
     iter::{IntoParallelRefIterator, ParallelIterator},
     prelude::*,
 };
+
+use crate::rgb_pixel_array::RGBPixelArray;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PixelArray {
@@ -35,6 +37,22 @@ impl PixelArray {
                 .collect(),
         )
         .unwrap()
+    }
+
+    pub fn into_rgb_pixel_array(self) -> RGBPixelArray {
+        let img = RgbImage::from_vec(
+            self.width,
+            self.height,
+            self.buffer
+                .into_iter()
+                .flat_map(|p| {
+                    let p255 = (p.clamp(0.0, 1.0) * 255.0) as u8;
+                    [p255, p255, p255]
+                })
+                .collect(),
+        )
+        .unwrap();
+        DynamicImage::ImageRgb8(img).into()
     }
 
     #[inline]
