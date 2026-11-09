@@ -94,7 +94,7 @@ impl RGBPixelArray {
         self.height = height;
     }
 
-    pub fn grayscale_simple(&self) -> PixelArray {
+    pub fn grayscale_simple(&mut self) {
         let buffer = self
             .data()
             .flat_map_iter(|p| {
@@ -103,14 +103,10 @@ impl RGBPixelArray {
             })
             .collect();
 
-        PixelArray {
-            width: self.width,
-            height: self.height,
-            buffer,
-        }
+        self.buffer = buffer
     }
 
-    pub fn grayscale_weighted(&self) -> PixelArray {
+    pub fn grayscale_weighted(&mut self) {
         let buffer = self
             .data()
             .flat_map_iter(|p| {
@@ -119,11 +115,7 @@ impl RGBPixelArray {
             })
             .collect();
 
-        PixelArray {
-            width: self.width,
-            height: self.height,
-            buffer,
-        }
+        self.buffer = buffer;
     }
 
     pub fn sepia(&mut self) {

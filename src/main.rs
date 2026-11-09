@@ -41,6 +41,9 @@ enum Filters {
     HsiHistogramPlot,
     HsiHistogramEqualizer,
     HsiAdjust,
+    GrayscaleSimple,
+    GrayscaleWeighted,
+    Sepia,
     ChromaKey,
 }
 
@@ -532,7 +535,10 @@ impl CasKod {
             | Filters::HsiHistogramEqualizer
             | Filters::HsiAdjust
             | Filters::HsiToRgb
-            | Filters::ChromaKey => {}
+            | Filters::ChromaKey
+            | Filters::GrayscaleSimple
+            | Filters::GrayscaleWeighted
+            | Filters::Sepia => {}
         }
     }
 
@@ -633,6 +639,9 @@ impl CasKod {
             }
             Filters::RgbToHsi => transformer.rgb_to_hsi(),
             Filters::HsiToRgb => transformer.hsi_to_rgb(),
+            Filters::GrayscaleSimple => transformer.grayscale_simple(),
+            Filters::GrayscaleWeighted => transformer.grayscale_weighted(),
+            Filters::Sepia => transformer.sepia(),
             Filters::HsiHistogramPlot => {
                 transformer
                     .hist_plot_hsi()
@@ -712,6 +721,13 @@ fn parameter_name(filter: &Filters, index: usize) -> String {
             1 => "Pivô X".into(),
             2 => "Pivô Y".into(),
             3 => "Interpolação (Nearest/Bilinear)".into(),
+            _ => format!("Parâmetro {}", index + 1),
+        },
+
+        Filters::HsiAdjust => match index {
+            0 => "Matiz".into(),
+            1 => "Saturação".into(),
+            2 => "Brilho".into(),
             _ => format!("Parâmetro {}", index + 1),
         },
 

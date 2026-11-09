@@ -17,6 +17,7 @@ pub struct Complex {
 
 pub trait Transform {
     type Output;
+    type Output2;
 
     fn threshold(&mut self, threshold: f64);
 
@@ -48,9 +49,9 @@ pub trait Transform {
 
     fn rotation(&mut self, theta: f64, px: i32, py: i32, interpolation: Interpolation);
 
-    fn derivative_x(&self, x: u32, y: u32) -> f64;
+    fn derivative_x(&self, x: u32, y: u32) -> Self::Output2;
 
-    fn derivative_y(&self, x: u32, y: u32) -> f64;
+    fn derivative_y(&self, x: u32, y: u32) -> Self::Output2;
 
     fn gradient_edge(&mut self);
 
@@ -70,6 +71,7 @@ pub trait Transform {
 
 impl Transform for PixelArray {
     type Output = Vec<Complex>;
+    type Output2 = f64;
 
     fn brightness(&mut self, c: f64) {
         self.apply(|p| *p *= c);
@@ -402,7 +404,7 @@ impl Transform for PixelArray {
         *self.data_mut_vec() = output;
     }
 
-    fn derivative_x(&self, x: u32, y: u32) -> f64 {
+    fn derivative_x(&self, x: u32, y: u32) -> Self::Output2 {
         let (x, y) = (x as usize, y as usize);
         let width = self.width() as usize;
 
@@ -417,7 +419,7 @@ impl Transform for PixelArray {
         }
     }
 
-    fn derivative_y(&self, x: u32, y: u32) -> f64 {
+    fn derivative_y(&self, x: u32, y: u32) -> Self::Output2 {
         let (x, y) = (x as usize, y as usize);
         let height = self.height() as usize;
 
@@ -557,6 +559,7 @@ impl Transform for PixelArray {
 
 impl Transform for RGBPixelArray {
     type Output = Vec<[Complex; 3]>;
+    type Output2 = [f64; 3];
 
     fn brightness(&mut self, c: f64) {
         self.apply(|p| {
@@ -1020,64 +1023,73 @@ impl Transform for RGBPixelArray {
         *self.data_mut_vec() = output.into_iter().flatten().collect();
     }
 
-    // TODO: adaptar melhor essa função para rgb
-    fn derivative_x(&self, x: u32, y: u32) -> f64 {
-        let (x, y) = (x as usize, y as usize);
+    fn derivative_x(&self, x: u32, y: u32) -> Self::Output2 {
         let width = self.width() as usize;
-        let pixels: Vec<&[f64]> = self.data().collect();
-
-        let luma = |row: usize, col: usize| {
-            let pixel = pixels[row * width + col];
-            0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
-        };
+        let (x, y) = (x as usize, y as usize);
+        let mut out = [0.0; 3];
 
         if width <= 1 {
-            0.0
-        } else if x == 0 {
-            luma(y, 1) - luma(y, 0)
-        } else if x == width - 1 {
-            luma(y, x) - luma(y, x - 1)
-        } else {
-            (luma(y, x + 1) - luma(y, x - 1)) * 0.5
+            return out;
         }
-    }
 
-    // TODO: adaptar melhor essa função para rgb
-    fn derivative_y(&self, x: u32, y: u32) -> f64 {
-        let (x, y) = (x as usize, y as usize);
-        let (width, height) = (self.width() as usize, self.height() as usize);
-        let pixels: Vec<&[f64]> = self.data().collect();
-
-        let luma = |row: usize, col: usize| {
-            let pixel = pixels[row * width + col];
-            0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+        let (a, b, scale) = if x == 0 {
+            (self.get(y, 1), self.get(y, 0), 1.0)
+        } else if x == width - 1 {
+            (self.get(y, x), self.get(y, x - 1), 1.0)
+        } else {
+            (self.get(y, x + 1), self.get(y, x - 1), 0.5)
         };
 
-        if height <= 1 {
-            0.0
-        } else if y == 0 {
-            luma(1, x) - luma(0, x)
-        } else if y == height - 1 {
-            luma(y, x) - luma(y - 1, x)
-        } else {
-            (luma(y + 1, x) - luma(y - 1, x)) * 0.5
+        for c in 0..3 {
+            out[c] = (a[c] - b[c]) * scale;
         }
+        out
     }
 
-    // TODO: adaptar melhor essa função para rgb
-    fn gradient_edge(&mut self) {
-        let mut copy = self.clone();
+    fn derivative_y(&self, x: u32, y: u32) -> Self::Output2 {
+        let height = self.height() as usize;
+        let (x, y) = (x as usize, y as usize);
+        let mut out = [0.0; 3];
 
-        copy.par_iter_mut().enumerate().for_each(|(i, p)| {
-            let width = self.get_dimensions().0;
-            let x = i as u32 % width;
-            let y = i as u32 / width;
-            let dx = self.derivative_x(x, y);
-            let dy = self.derivative_y(x, y);
-            *p = dx.hypot(dy).clamp(0.0, 1.0);
+        if height <= 1 {
+            return out;
+        }
+
+        let (a, b, scale) = if y == 0 {
+            (self.get(1, x), self.get(0, x), 1.0)
+        } else if y == height - 1 {
+            (self.get(y, x), self.get(y - 1, x), 1.0)
+        } else {
+            (self.get(y + 1, x), self.get(y - 1, x), 0.5)
+        };
+
+        for c in 0..3 {
+            out[c] = (a[c] - b[c]) * scale;
+        }
+        out
+    }
+
+    fn gradient_edge(&mut self) {
+        let width = self.width() as usize;
+        if width == 0 || self.height() == 0 {
+            return;
+        }
+
+        let mut result = vec![0.0; self.buffer.len()];
+        let this = &*self;
+
+        // chunks de 3 = um pixel (r, g, b); i é o índice do PIXEL
+        result.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
+            let (x, y) = ((i % width) as u32, (i / width) as u32);
+            let dx = this.derivative_x(x, y);
+            let dy = this.derivative_y(x, y);
+
+            for c in 0..3 {
+                px[c] = dx[c].hypot(dy[c]).clamp(0.0, 1.0);
+            }
         });
 
-        *self = copy;
+        self.buffer = result;
     }
 
     fn sobel(&mut self) {
