@@ -1,7 +1,10 @@
+mod ui_theme;
+use ui_theme::cbutton as button;
+
 use iced::widget::{
-    button, column, container, image as iced_img, row, scrollable, text, text_input,
+    column, container, image as iced_img, row, scrollable, text, text_input,
 };
-use iced::{Element, Length, Task};
+use iced::{Color, Element, Length, Task, Theme};
 use image::{ColorType, DynamicImage};
 use pdi::pixel_array::{self, PixelArray};
 use pdi::rgb_pixel_array::{self, RGBPixelArray};
@@ -12,6 +15,17 @@ use strum_macros::EnumIter;
 
 fn main() {
     let _ = iced::application(CasKod::new, CasKod::update, CasKod::view)
+        .theme(Theme::custom(
+            "My Custom Theme".to_string(),
+            iced::theme::Palette {
+                background: Color::from_rgba(0.098, 0.094, 0.094, 1.0),
+                text: Color::from_rgba(1.000, 1.000, 1.000, 1.0),
+                primary: Color::from_rgba(0.157, 0.145, 0.141, 1.0),
+                success: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+                warning: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+                danger: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+            },
+        ))
         .title(CasKod::title)
         .run();
 }
@@ -132,6 +146,7 @@ impl CasKod {
                     return Task::done(Message::UpdateImage(load_image(file_path)));
                 }
             }
+
             Message::ExecuteFunction(filter) => {
                 self.parameters = match filter {
                     Filters::Threshold | Filters::Brightness => vec!["0.5".into()],
