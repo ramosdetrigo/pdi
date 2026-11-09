@@ -610,7 +610,7 @@ impl Transform for RGBPixelArray {
                 .draw()?;
 
             chart.draw_series(
-                Histogram::vertical(&chart).style(color.filled()).data(
+                Histogram::vertical(&chart).margin(1).style(color.filled()).data(
                     histogram
                         .iter()
                         .enumerate()

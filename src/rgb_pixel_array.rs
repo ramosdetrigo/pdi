@@ -137,9 +137,10 @@ impl RGBPixelArray {
     }
 
     pub fn hist(&self) -> [[usize; 256]; 3] {
-        self.data()
+        let hist = self
+            .data()
             .fold(
-                || [[0usize; 256]; 3],
+                || vec![[0usize; 256]; 3],
                 |mut hist, pixel| {
                     for channel in 0..3 {
                         let value = pixel[channel].clamp(0.0, 1.0);
@@ -150,13 +151,18 @@ impl RGBPixelArray {
                 },
             )
             .reduce(
-                || [[0usize; 256]; 3],
-                |a, b| {
-                    std::array::from_fn(|channel| {
-                        std::array::from_fn(|i| a[channel][i] + b[channel][i])
-                    })
+                || vec![[0usize; 256]; 3],
+                |mut a, b| {
+                    for channel in 0..3 {
+                        for i in 0..256 {
+                            a[channel][i] += b[channel][i];
+                        }
+                    }
+                    a
                 },
-            )
+            );
+
+        hist.try_into().expect("histograma tem 3 canais")
     }
 
     pub fn rgb_to_hsi(&mut self) {
