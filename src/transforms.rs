@@ -179,7 +179,6 @@ impl Transform for PixelArray {
         chart
             .configure_mesh()
             .x_desc("Bucket")
-            .y_desc("Frequência")
             .axis_desc_style(("sans-serif", 16).into_font())
             .label_style(("sans-serif", 13).into_font().color(&RGBColor(71, 85, 105)))
             .axis_style(RGBColor(148, 163, 184))
@@ -187,13 +186,11 @@ impl Transform for PixelArray {
             .draw()?;
 
         chart.draw_series(
-            Histogram::vertical(&chart)
-                .style(RGBColor(59, 130, 246).mix(0.8).filled().stroke_width(1))
-                .data(
-                    data.iter()
-                        .enumerate()
-                        .map(|(bucket, count)| (bucket, *count)),
-                ),
+            Histogram::vertical(&chart).style(BLACK.filled()).data(
+                data.iter()
+                    .enumerate()
+                    .map(|(bucket, count)| (bucket, *count)),
+            ),
         )?;
 
         root.present()?;
@@ -696,21 +693,17 @@ impl Transform for RGBPixelArray {
             chart
                 .configure_mesh()
                 .disable_x_mesh()
-                .y_desc("Count")
                 .x_desc("Bucket")
                 .axis_desc_style(("sans-serif", 12))
                 .draw()?;
 
             chart.draw_series(
-                Histogram::vertical(&chart)
-                    .margin(1)
-                    .style(color.filled())
-                    .data(
-                        histogram
-                            .iter()
-                            .enumerate()
-                            .map(|(bucket, count)| (bucket, *count)),
-                    ),
+                Histogram::vertical(&chart).style(color.filled()).data(
+                    histogram
+                        .iter()
+                        .enumerate()
+                        .map(|(bucket, count)| (bucket, *count)),
+                ),
             )?;
         }
 
