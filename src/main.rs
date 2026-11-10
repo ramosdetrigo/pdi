@@ -1,8 +1,9 @@
 #![allow(clippy::chunks_exact_to_as_chunks)]
-use iced::widget::{
-    Space, button, column, container, image as iced_img, row, scrollable, text, text_input,
-};
-use iced::{Element, Length, Task};
+mod ui;
+use ui::cbutton as button;
+
+use iced::widget::{column, container, image as iced_img, row, scrollable, text, text_input};
+use iced::{Color, Element, Length, Task, Theme};
 use image::{ColorType, DynamicImage};
 use pdi::pixel_array::{self, PixelArray};
 use pdi::rgb_pixel_array::{self, RGBPixelArray};
@@ -11,8 +12,23 @@ use std::path::Path;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+use crate::ui::{hseparator, vseparator};
+
 fn main() {
     let _ = iced::application(CasKod::new, CasKod::update, CasKod::view)
+        .font(include_bytes!("../MapleMono-Regular.ttf").as_slice())
+        .default_font(iced::Font::with_name("Maple Mono"))
+        .theme(Theme::custom(
+            "My Custom Theme".to_string(),
+            iced::theme::Palette {
+                background: Color::from_rgba(0.098, 0.094, 0.094, 1.0),
+                text: Color::from_rgba(1.000, 1.000, 1.000, 1.0),
+                primary: Color::from_rgba(0.157, 0.145, 0.141, 1.0),
+                success: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+                warning: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+                danger: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+            },
+        ))
         .title(CasKod::title)
         .run();
 }
@@ -47,11 +63,6 @@ enum Filters {
     GrayscaleWeighted,
     Sepia,
     ChromaKey,
-}
-
-enum Tos {
-    RgbToGrayscale,
-    GrayscaleToRgb,
 }
 
 #[derive(Debug, Clone)]
@@ -266,8 +277,6 @@ impl CasKod {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        if let Some(filter) = self.pending_filter {}
-
         // Tela principal: imagem e botões.
         let left: Element<'_, Message> = match &self.image_handle {
             Some(handle) => iced_img(handle).into(),
@@ -277,20 +286,6 @@ impl CasKod {
         };
 
         let mut right = column![];
-
-        if self.image_handle.is_some() {
-            right = right
-                .push(
-                    button("Limpar imagem")
-                        .on_press(Message::ClearImage)
-                        .width(Length::Fill),
-                )
-                .push(
-                    button("Salvar imagem")
-                        .on_press(Message::SaveImage)
-                        .width(Length::Fill),
-                );
-        }
 
         const RGB_ONLY_FILTERS: [Filters; 9] = [
             Filters::RgbToHsi,
@@ -304,30 +299,59 @@ impl CasKod {
             Filters::ChromaKey,
         ];
 
-        for filter in Filters::iter() {
-            if self.image_was_grayscale && RGB_ONLY_FILTERS.contains(&filter) {
-                continue;
+        if self.transformer.is_some() || self.transformer_rgb.is_some() {
+            for filter in Filters::iter() {
+                if self.image_was_grayscale && RGB_ONLY_FILTERS.contains(&filter) {
+                    continue;
+                }
+                let nome_filtro = filter_name(&filter);
+                right = right.push(
+                    button(text(nome_filtro))
+                        .on_press(Message::ExecuteFunction(filter))
+                        .width(Length::Fill),
+                );
             }
-            let nome_filtro = filter_name(&filter);
-            right = right.push(
-                button(text(nome_filtro))
-                    .on_press(Message::ExecuteFunction(filter))
-                    .width(Length::Fill),
-            );
         }
 
         let parameters = self.parameter_container();
+
+        let right_panel: Element<'_, Message> =
+            if self.transformer.is_none() && self.transformer_rgb.is_none() {
+                container(text("Selecione uma imagem para ver os filtros"))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into()
+            } else {
+                scrollable(right)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            };
+
+        let mut right_top = column![];
+        if self.transformer.is_some() || self.transformer_rgb.is_some() {
+            right_top = right_top
+                .push(
+                    button("Limpar imagem")
+                        .on_press(Message::ClearImage)
+                        .width(Length::Fill),
+                )
+                .push(
+                    button("Salvar imagem")
+                        .on_press(Message::SaveImage)
+                        .width(Length::Fill),
+                )
+                .push(hseparator())
+        }
 
         row![
             container(left)
                 .center_x(Length::FillPortion(3))
                 .center_y(Length::Fill),
-            column![
-                scrollable(right)
-                    .width(Length::FillPortion(2))
-                    .height(Length::Fill),
-                parameters
-            ]
+            vseparator(),
+            column![right_top, right_panel, hseparator(), parameters]
         ]
         .width(Length::Fill)
         .height(Length::Fill)

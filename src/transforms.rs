@@ -498,7 +498,7 @@ impl Transform for PixelArray {
 
                 for y in 0..height {
                     for x in 0..width {
-                        let pixel = self.get(y as usize, x as usize) as f64;
+                        let pixel = self.get(y as usize, x as usize);
                         let angle = -TAU
                             * ((u as f64 * x as f64 / width as f64)
                                 + (v as f64 * y as f64 / height as f64));
